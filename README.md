@@ -98,6 +98,10 @@ npm run build && npm pack
 cd <アプリのディレクトリ> && npm install <作った .tgz のパス>
 ```
 
+## リリース
+
+PR で `package.json` の `version` を上げてマージすると、GitHub Actions が npm に公開し、`v<version>` のタグと GitHub Release を作ります。版を上げない PR のマージでは何も公開しません。
+
 ## ライセンス
 
 MIT

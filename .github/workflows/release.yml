@@ -1,0 +1,54 @@
+name: Release
+
+# main にマージされたとき、package.json の version がまだ npm に無ければ公開する。
+# 版を上げない PR のマージでは何もしない。
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # タグと GitHub Release を作る
+      id-token: write # npm の Trusted Publishing（OIDC）
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing には npm 11.5.1 以上が要る
+      - run: npm install -g npm@^11.5.1
+
+      - name: Check if this version is already published
+        id: check
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version は公開済み。スキップする"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm ci
+
+      # prepublishOnly で lint・型・テスト・ビルドが走る
+      - if: steps.check.outputs.publish == 'true'
+        run: npm publish --provenance --access public
+
+      - if: steps.check.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${{ steps.check.outputs.version }}" --target "$GITHUB_SHA" --generate-notes
