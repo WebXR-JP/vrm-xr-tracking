@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import type { ControllerTransform } from './types'
+import type { ControllerTransform } from './types.js'
 
 /**
  * ControllerTransformオブジェクトを生成
@@ -24,22 +24,16 @@ export function updateTransformFromPose(transform: ControllerTransform, pose: XR
 
 /**
  * InputSourceからXRSpaceを取得
- * - コントローラー: gripSpace（手の位置）
- * - ハンドトラッキング: wrist ジョイントの space
+ * - ハンドトラッキング: wrist ジョイントの space（手首の位置・向き）
+ * - コントローラー: gripSpace（握りの中心）
+ *
+ * 手にも gripSpace を出す端末（Quest・Android XR など）があるが、手は必ず wrist を使う。
+ * 手の回転オフセット（HAND_TRACKING_ROTATION_OFFSET_*）と、手首の位置へ戻さない扱い（fromGrip）は
+ * wrist の座標系を前提にしているため。gripSpace のままだと手首が約 90° 折れ、手も前に出る
  */
 export function getControllerSpace(inputSource: XRInputSource): XRSpace | null {
-  // コントローラーの場合は gripSpace を使用
-  if (inputSource.gripSpace) {
-    return inputSource.gripSpace
-  }
-
-  // ハンドトラッキングの場合は wrist ジョイントの space を使用
   if (inputSource.hand) {
-    const wristJoint = inputSource.hand.get('wrist')
-    if (wristJoint) {
-      return wristJoint
-    }
+    return inputSource.hand.get('wrist') ?? null
   }
-
-  return null
+  return inputSource.gripSpace ?? null
 }

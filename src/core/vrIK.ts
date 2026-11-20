@@ -21,14 +21,18 @@ export const CONTROLLER_ROTATION_OFFSET_RIGHT = new Quaternion().setFromEuler(
   new Euler(Math.PI, -Math.PI / 4, Math.PI / 2, 'ZYX'),
 )
 
-// ハンドトラッキング用の回転オフセット（wristジョイントの座標系とVRM手首ボーンの差を補正）
-// WebXR wrist: Y軸が手先方向、Z軸が手のひら法線方向
-// Tポーズで手のひらが下、手先が横を向くよう補正（左右で鏡像関係）
+// ハンドトラッキング用の回転オフセット（wrist ジョイントの座標系を、コントローラーの grip の座標系に直す）
+// この後にコントローラーと同じ CONTROLLER_ROTATION_OFFSET_* を掛けるので、手でもコントローラーと同じ向きになる。
+// WebXR の仕様での向き:
+// - wrist: -Z が指先（手のひらの中心）へ、-Y が手のひらの外へ
+// - grip: -Z が握った棒に沿って親指の方へ、+X が手の甲の向き（右手。左手は -X）
+// 手のひらを下・指先を前にした手で、wrist から見た grip の軸は
+// 右手 x→+Y・y→+Z・z→+X、左手 x→-Y・y→+Z・z→-X（左右で鏡像）
 export const HAND_TRACKING_ROTATION_OFFSET_LEFT = new Quaternion().setFromEuler(
-  new Euler(0, -Math.PI / 4, -Math.PI / 2),
+  new Euler(Math.PI / 2, -Math.PI / 2, 0),
 )
 export const HAND_TRACKING_ROTATION_OFFSET_RIGHT = new Quaternion().setFromEuler(
-  new Euler(0, Math.PI / 4, Math.PI / 2),
+  new Euler(Math.PI / 2, Math.PI / 2, 0),
 )
 
 /**

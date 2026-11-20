@@ -5,8 +5,8 @@ import {
   createControllerTransform,
   getControllerSpace,
   updateTransformFromPose,
-} from '../core/controllerPose'
-import type { ControllerTransform, VRTransforms } from '../core/types'
+} from '../core/controllerPose.js'
+import type { ControllerTransform, VRTransforms } from '../core/types.js'
 
 /**
  * VRコントローラーとHMDの位置・回転を取得するhook
