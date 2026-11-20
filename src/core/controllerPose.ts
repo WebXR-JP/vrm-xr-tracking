@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
-import type { ControllerTransform } from './types'
+import type { ControllerTransform } from './types.js'
 
 /**
  * ControllerTransformオブジェクトを生成

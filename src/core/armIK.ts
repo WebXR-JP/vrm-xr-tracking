@@ -1,6 +1,6 @@
 import type { VRM } from '@pixiv/three-vrm'
 import { Quaternion, Vector3 } from 'three'
-import type { ControllerTransform } from './types'
+import type { ControllerTransform } from './types.js'
 import {
   applyGripRotationToBone,
   getControllerRotationOffset,
@@ -9,7 +9,7 @@ import {
   HAND_TRACKING_ROTATION_OFFSET_LEFT,
   HAND_TRACKING_ROTATION_OFFSET_RIGHT,
   solveTwoBoneIK,
-} from './vrIK'
+} from './vrIK.js'
 
 export type ArmIKOptions = {
   /** XROriginのワールド座標（ローカル→ワールド変換用） */
