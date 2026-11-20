@@ -91,6 +91,19 @@ describe('VRControllerPositions utils', () => {
       expect(result).toBe(mockWristSpace)
     })
 
+    it('手に gripSpace があっても wrist ジョイントを返す（Quest・Android XR など）', () => {
+      const mockWristSpace = {} as XRJointSpace
+      const mockHand = {
+        get: (jointName: string) => (jointName === 'wrist' ? mockWristSpace : null),
+      } as unknown as XRHand
+      const inputSource = {
+        gripSpace: {} as XRSpace,
+        hand: mockHand,
+      } as unknown as XRInputSource
+
+      expect(getControllerSpace(inputSource)).toBe(mockWristSpace)
+    })
+
     it('gripSpaceもhandも無い場合はnullを返す', () => {
       const inputSource = {
         gripSpace: null,
