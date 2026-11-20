@@ -1,7 +1,7 @@
 import type { VRM } from '@pixiv/three-vrm'
 import { useCallback, useRef } from 'react'
-import { applyFingerCurl, clampFingerCurl, createFingerCurlStates } from '../core/fingerCurl'
-import type { FingerCurlData } from '../core/types'
+import { applyFingerCurl, clampFingerCurl, createFingerCurlStates } from '../core/fingerCurl.js'
+import type { FingerCurlData } from '../core/types.js'
 
 /**
  * 指を寄せる速さ。ほかの人の値は 20fps・0.05 刻みでしか届かないので、

@@ -1,6 +1,6 @@
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm'
 import { type Object3D, Quaternion, Vector3 } from 'three'
-import type { FingerCurlData } from './types'
+import type { FingerCurlData } from './types.js'
 
 /**
  * 握りきったときの関節ごとの曲げ角（ラジアン）。

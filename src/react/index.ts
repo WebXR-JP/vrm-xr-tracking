@@ -1,2 +1,2 @@
-export { useFingerCurl } from './useFingerCurl'
-export { useVRControllerPositions } from './useVRControllerPositions'
+export { useFingerCurl } from './useFingerCurl.js'
+export { useVRControllerPositions } from './useVRControllerPositions.js'
