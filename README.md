@@ -98,9 +98,22 @@ npm run build && npm pack
 cd <アプリのディレクトリ> && npm install <作った .tgz のパス>
 ```
 
-## リリース
+## リリース（Changesets）
 
-PR で `package.json` の `version` を上げてマージすると、GitHub Actions が npm に公開し、`v<version>` のタグと GitHub Release を作ります。版を上げない PR のマージでは何も公開しません。
+`package.json` の `version` は手で上げません。利用者に影響する変更を入れる PR には changeset を足します（`npx changeset`、または `.changeset/<任意の名前>.md` を直接書く）。
+
+```md
+---
+"@webxr-jp/vrm-xr-tracking": patch
+---
+
+ハンドトラッキングで手首が折れるのを直す
+```
+
+- 種類の目安（0.x の間）: 機能追加・破壊的変更は `minor`、バグ修正などは `patch`
+- 本文は CHANGELOG とリリース PR にそのまま載るので、利用者向けに書く
+- ドキュメントや CI だけの変更には changeset は不要
+- 流れ: PR を main にマージ → `chore: release packages` PR が自動で作られる（更新される）→ それをマージすると GitHub Actions が npm に公開する
 
 ## ライセンス
 
