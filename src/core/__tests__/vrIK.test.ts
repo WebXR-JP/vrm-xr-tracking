@@ -1,5 +1,5 @@
 import type { VRM, VRMHumanoid } from '@pixiv/three-vrm'
-import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
+import { Euler, Object3D, Quaternion, Vector3 } from 'three'
 import {
   applyKneeBend,
   applyUpperBodyRotation,
