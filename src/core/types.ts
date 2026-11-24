@@ -15,8 +15,20 @@ export interface VRTransforms {
   hmd: ControllerTransform | null
 }
 
+/** 指の名前 */
+export type FingerName = 'thumb' | 'index' | 'middle' | 'ring' | 'little'
+
+/** 指ごとの曲がり具合（0=開く、1=握る） */
+export type FingerCurls = Record<FingerName, number>
+
 /** 手の指の曲がり具合（0=開く、1=握る） */
 export interface FingerCurlData {
+  /** 左手の 5 本をまとめた曲がり（コントローラーのグリップなど） */
   left: number
   right: number
+  /**
+   * 指ごとの曲がり（ハンドトラッキングなど）。あればその指は left / right より優先する。
+   * 古い相手は無視して left / right で曲げるので、left / right も入れておく
+   */
+  fingers?: Partial<Record<'left' | 'right', FingerCurls>>
 }
