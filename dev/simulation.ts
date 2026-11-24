@@ -38,10 +38,10 @@ function specDeviation(axes: { finger: Vector3; palm: Vector3 } | null) {
 }
 
 /** ログの関節から指ごとの曲がりを求める */
-function curlsOf(hand: ReplayHand | null): FingerCurls | null {
+function curlsOf(hand: ReplayHand | null, side: Side): FingerCurls | null {
   if (!hand?.joints) return null
   const joints = hand.joints
-  return computeFingerCurls((name) => joints.get(name)?.position)
+  return computeFingerCurls((name) => joints.get(name)?.position, undefined, side)
 }
 
 function jointsInWorld(hand: ReplayHand, transform: ControllerTransform): Vector3[] {
@@ -75,7 +75,7 @@ function presetSimHand(preset: PosePreset, side: Side, replay: ReplayHand | null
     finger: target.finger,
     palm: target.palm,
     joints: replay ? jointsInWorld(replay, transform) : [],
-    curls: curlsOf(replay),
+    curls: curlsOf(replay, side),
     specDeviation: specDeviation(axes),
   }
 }
@@ -95,7 +95,7 @@ function recordedSimHand(hand: ReplayHand, side: Side): SimHand | null {
     finger: axes ? axes.finger.clone().applyQuaternion(transform.rotation) : null,
     palm: axes ? axes.palm.clone().applyQuaternion(transform.rotation) : null,
     joints: jointsInWorld(hand, transform),
-    curls: curlsOf(hand),
+    curls: curlsOf(hand, side),
     specDeviation: specDeviation(axes),
   }
 }

@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { getFingerCurl } from '../fingerCurl'
-import { computeFingerCurls, measureFingerBend } from '../handFingerCurl'
+import { computeFingerCurls, measureFingerBend, measureThumbSwing } from '../handFingerCurl'
 
 /**
  * 根元から -Z へ伸び、関節ごとに手のひら側（-Y）へ bendDegrees ずつ曲がる指の関節位置を作る
@@ -94,5 +94,45 @@ describe('getFingerCurl', () => {
     expect(getFingerCurl(curl, 'left', 'thumb')).toBe(0)
     expect(getFingerCurl(curl, 'left', 'index')).toBe(1)
     expect(getFingerCurl(curl, 'left', 'middle')).toBe(0)
+  })
+})
+
+describe('measureThumbSwing', () => {
+  // 右手を、手のひらを下（-Y）・指先を前（-Z）に置く。親指の側は -X
+  const base = (thumbTip: Vector3) =>
+    new Map<string, Vector3>([
+      ['wrist', new Vector3(0, 0, 0)],
+      ['middle-finger-phalanx-proximal', new Vector3(0, 0, -0.1)],
+      ['index-finger-phalanx-proximal', new Vector3(-0.025, 0, -0.1)],
+      ['pinky-finger-phalanx-proximal', new Vector3(0.035, 0, -0.08)],
+      ['thumb-metacarpal', new Vector3(-0.02, 0, -0.03)],
+      ['thumb-tip', thumbTip],
+    ])
+
+  it('親指を横に開くと 0° 近く、手のひらの前（下）へ寄せると 90° 近く', () => {
+    const out = base(new Vector3(-0.08, 0, -0.03))
+    const under = base(new Vector3(-0.02, -0.06, -0.03))
+    expect(measureThumbSwing((j) => out.get(j), 'right')).toBeCloseTo(0)
+    expect(measureThumbSwing((j) => under.get(j), 'right')).toBeCloseTo(90)
+  })
+
+  it('親指を立てる（手の甲の側）と負になる', () => {
+    const up = base(new Vector3(-0.05, 0.05, -0.03))
+    expect(measureThumbSwing((j) => up.get(j), 'right')).toBeLessThan(0)
+  })
+
+  it('左手は鏡像（X を反転）でも同じ角度', () => {
+    const mirror = (map: Map<string, Vector3>) =>
+      new Map([...map].map(([k, v]) => [k, new Vector3(-v.x, v.y, v.z)]))
+    const under = mirror(base(new Vector3(-0.02, -0.06, -0.03)))
+    expect(measureThumbSwing((j) => under.get(j), 'left')).toBeCloseTo(90)
+  })
+
+  it('左右を渡すと、親指は回り込みも見て大きいほうを使う', () => {
+    const under = base(new Vector3(-0.02, -0.06, -0.03))
+    const withSide = computeFingerCurls((j) => under.get(j), undefined, 'right')
+    const withoutSide = computeFingerCurls((j) => under.get(j))
+    expect(withSide.thumb).toBe(1)
+    expect(withoutSide.thumb).toBe(0)
   })
 })
