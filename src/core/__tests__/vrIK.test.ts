@@ -1,5 +1,5 @@
 import type { VRM, VRMHumanoid } from '@pixiv/three-vrm'
-import { Euler, Object3D, Quaternion, Vector3 } from 'three'
+import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
 import {
   applyKneeBend,
   applyUpperBodyRotation,
@@ -307,6 +307,21 @@ describe('vrIK', () => {
           HAND_TRACKING_ROTATION_OFFSET_RIGHT,
         )
         expect(distance).toBeGreaterThan(0.1)
+      })
+
+      // 手のひらを下・指先を前（-Z）にした手。wrist はワールドと同じ向き（WebXR の仕様）
+      // grip は -Z が親指の方、+X が手の甲（右手。左手は -X）
+      const gripOf = (x: Vector3, y: Vector3, z: Vector3) =>
+        new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, y, z))
+
+      it('右手: wrist にオフセットを掛けると grip の向きになる', () => {
+        const grip = gripOf(new Vector3(0, 1, 0), new Vector3(0, 0, 1), new Vector3(1, 0, 0))
+        expect(HAND_TRACKING_ROTATION_OFFSET_RIGHT.angleTo(grip)).toBeCloseTo(0)
+      })
+
+      it('左手: wrist にオフセットを掛けると grip の向きになる', () => {
+        const grip = gripOf(new Vector3(0, -1, 0), new Vector3(0, 0, 1), new Vector3(-1, 0, 0))
+        expect(HAND_TRACKING_ROTATION_OFFSET_LEFT.angleTo(grip)).toBeCloseTo(0)
       })
     })
   })

@@ -1,6 +1,6 @@
 import type { VRM } from '@pixiv/three-vrm'
 import { Vector3 } from 'three'
-import { applyKneeBend, DEFAULT_LEG_LENGTH } from './vrIK'
+import { applyKneeBend, DEFAULT_LEG_LENGTH } from './vrIK.js'
 
 // しゃがみ判定のしきい値（5cm以上下がったらしゃがみと判定）
 export const CROUCH_THRESHOLD = 0.05
