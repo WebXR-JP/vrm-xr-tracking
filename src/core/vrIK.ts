@@ -1,6 +1,6 @@
 import type { VRM } from '@pixiv/three-vrm'
 import { createVRMAnimationClip, type VRMAnimation } from '@pixiv/three-vrm-animation'
-import { AnimationClip, Euler, type Object3D, Quaternion, Vector3 } from 'three'
+import { AnimationClip, Euler, Matrix4, type Object3D, Quaternion, Vector3 } from 'three'
 
 // 回転分散の比率（Y軸回転のみ）
 export const ROTATION_DISTRIBUTION = {
@@ -21,18 +21,47 @@ export const CONTROLLER_ROTATION_OFFSET_RIGHT = new Quaternion().setFromEuler(
   new Euler(Math.PI, -Math.PI / 4, Math.PI / 2, 'ZYX'),
 )
 
-// ハンドトラッキング用の回転オフセット（wrist ジョイントの座標系を、コントローラーの grip の座標系に直す）
-// この後にコントローラーと同じ CONTROLLER_ROTATION_OFFSET_* を掛けるので、手でもコントローラーと同じ向きになる。
-// WebXR の仕様での向き:
-// - wrist: -Z が指先（手のひらの中心）へ、-Y が手のひらの外へ
-// - grip: -Z が握った棒に沿って親指の方へ、+X が手の甲の向き（右手。左手は -X）
-// 手のひらを下・指先を前にした手で、wrist から見た grip の軸は
-// 右手 x→+Y・y→+Z・z→+X、左手 x→-Y・y→+Z・z→-X（左右で鏡像）
-export const HAND_TRACKING_ROTATION_OFFSET_LEFT = new Quaternion().setFromEuler(
-  new Euler(Math.PI / 2, -Math.PI / 2, 0),
+// ハンドトラッキング用の回転オフセット（wrist ジョイントの向きから、手のボーンの向きへ）
+// この後にコントローラーと同じ CONTROLLER_ROTATION_OFFSET_* を掛けるので、その分を打ち消しておく。
+// grip を経由して合わせると、コントローラーのオフセットに入っている「握った棒の傾き」の 45° まで
+// 手に掛かり、T ポーズで指先が前に 45° 曲がる。なので T ポーズで直接合わせる。
+//
+// T ポーズ（ユーザーは -Z を向き、腕を真横・手のひらを下）での wrist の向き（WebXR の仕様:
+// -Z が指先の方、-Y が手のひらの外）と、そのときのアバターの手（VRM 1.0 は +Z 向きなので
+// アバターは Y 軸に 180° 回っている。正規化ボーンは T ポーズで回転なし）から求める
+const _basis = new Matrix4()
+function quatFromBasis(x: Vector3, y: Vector3, z: Vector3): Quaternion {
+  return new Quaternion().setFromRotationMatrix(_basis.makeBasis(x, y, z))
+}
+/** T ポーズでの wrist ジョイントの向き（右手は指先が +X、左手は -X） */
+export const TPOSE_WRIST_RIGHT = quatFromBasis(
+  new Vector3(0, 0, 1),
+  new Vector3(0, 1, 0),
+  new Vector3(-1, 0, 0),
 )
-export const HAND_TRACKING_ROTATION_OFFSET_RIGHT = new Quaternion().setFromEuler(
-  new Euler(Math.PI / 2, Math.PI / 2, 0),
+export const TPOSE_WRIST_LEFT = quatFromBasis(
+  new Vector3(0, 0, -1),
+  new Vector3(0, 1, 0),
+  new Vector3(1, 0, 0),
+)
+/** T ポーズでのアバターの手のボーンのワールドの向き（アバターが Y 軸に 180° 回っている） */
+const TPOSE_HAND = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI)
+
+/** wrist · offset · コントローラーのオフセット が T ポーズで TPOSE_HAND になる offset */
+function handTrackingOffset(tposeWrist: Quaternion, controllerOffset: Quaternion): Quaternion {
+  return tposeWrist
+    .clone()
+    .invert()
+    .multiply(TPOSE_HAND)
+    .multiply(controllerOffset.clone().invert())
+}
+export const HAND_TRACKING_ROTATION_OFFSET_LEFT = handTrackingOffset(
+  TPOSE_WRIST_LEFT,
+  CONTROLLER_ROTATION_OFFSET_LEFT,
+)
+export const HAND_TRACKING_ROTATION_OFFSET_RIGHT = handTrackingOffset(
+  TPOSE_WRIST_RIGHT,
+  CONTROLLER_ROTATION_OFFSET_RIGHT,
 )
 
 /**
