@@ -5,6 +5,7 @@ import type { FingerCurlData, FingerName } from './types.js'
 /**
  * 握りきったときの関節ごとの曲げ角（ラジアン）。
  * 正規化ボーンは T ポーズ・手のひら下向きなので、4本指は Z 軸回り、親指は X 軸回りに曲げる
+ * （親指の付け根だけは、手のひらの前へ回り込む向きに回す。getThumbOpposition）
  */
 const FINGER_JOINT_ANGLES = {
   Proximal: (70 * Math.PI) / 180,
@@ -27,6 +28,41 @@ const FINGERS = [
 
 const AXIS_X = new Vector3(1, 0, 0)
 const AXIS_Z = new Vector3(0, 0, 1)
+
+/**
+ * 握りこぶしで親指（付け根から先）が向く方向（手のボーンのローカル。右手）。
+ * VRM 1.0 の正規化した右手は、指先が -X・手のひらが -Y・親指の側が +Z。
+ * Android XR・Quest 3 の握りこぶしの実機のログ（手のひらの前へ回り込み、指先の方へ伸びる）から。
+ * 左手は X を反転する
+ */
+const OPPOSED_THUMB_DIRECTION_RIGHT = new Vector3(-0.82, -0.52, 0.24).normalize()
+const OPPOSED_THUMB_DIRECTION_LEFT = new Vector3(0.82, -0.52, 0.24).normalize()
+
+/** 親指の付け根を回す軸と、握りきったときの角度（アバターの親指の向きから求める） */
+interface ThumbOpposition {
+  axis: Vector3
+  angle: number
+}
+
+const _thumbRest = new Vector3()
+
+/**
+ * 親指の付け根を、アバターの親指の向き（付け根→次の関節）から、握りこぶしの親指の向きへ回す
+ * 軸と角度を求める。アバターごとに親指の向きが違うので、正規化ボーンの位置から毎回決める
+ * @param nextJointPosition 親指の次の関節（Proximal）の、付け根から見た位置
+ */
+export function getThumbOpposition(
+  side: 'left' | 'right',
+  nextJointPosition: Vector3,
+): ThumbOpposition | null {
+  _thumbRest.copy(nextJointPosition)
+  if (_thumbRest.lengthSq() < 1e-12) return null
+  _thumbRest.normalize()
+  const target = side === 'left' ? OPPOSED_THUMB_DIRECTION_LEFT : OPPOSED_THUMB_DIRECTION_RIGHT
+  const axis = new Vector3().crossVectors(_thumbRest, target)
+  if (axis.lengthSq() < 1e-12) return null
+  return { axis: axis.normalize(), angle: _thumbRest.angleTo(target) }
+}
 
 interface FingerJoint {
   bone: VRMHumanBoneName
@@ -145,7 +181,41 @@ export function applyFingerCurl(
     for (const joint of joints) {
       const bone = humanoid.getNormalizedBoneNode(joint.bone)
       if (!bone) continue
-      applyJointCurl(bone, joint.axis, joint.angle, getFingerCurl(curl, side, joint.finger), states)
+      const value = getFingerCurl(curl, side, joint.finger)
+      // 親指の付け根は、手のひらの前へ回り込む向きに回す（指の軸回りに倒すだけでは回り込まない）。
+      // 指ごとの値（ハンドトラッキング）があるときだけ。コントローラーのグリップでは今までどおり
+      // （持った物やコントローラーに親指がめり込まないように）
+      const opposition =
+        joint.bone === `${side}ThumbMetacarpal` && curl.fingers?.[side]
+          ? getCachedThumbOpposition(humanoid, side)
+          : null
+      if (opposition) {
+        applyJointCurl(bone, opposition.axis, opposition.angle, value, states)
+        continue
+      }
+      applyJointCurl(bone, joint.axis, joint.angle, value, states)
     }
   }
+}
+
+const _thumbOppositions = new WeakMap<
+  object,
+  Partial<Record<'left' | 'right', ThumbOpposition | null>>
+>()
+
+/** アバターごと・左右ごとに、親指の付け根を回す軸と角度を一度だけ求めて覚えておく */
+function getCachedThumbOpposition(
+  humanoid: NonNullable<VRM['humanoid']>,
+  side: 'left' | 'right',
+): ThumbOpposition | null {
+  let cache = _thumbOppositions.get(humanoid)
+  if (!cache) {
+    cache = {}
+    _thumbOppositions.set(humanoid, cache)
+  }
+  if (cache[side] === undefined) {
+    const next = humanoid.getNormalizedBoneNode(`${side}ThumbProximal`)
+    cache[side] = next ? getThumbOpposition(side, next.position) : null
+  }
+  return cache[side] ?? null
 }

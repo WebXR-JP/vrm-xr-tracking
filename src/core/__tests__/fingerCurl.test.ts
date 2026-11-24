@@ -1,10 +1,13 @@
+import type { VRM } from '@pixiv/three-vrm'
 import { Object3D, Quaternion, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
+  applyFingerCurl,
   applyJointCurl,
   clampFingerCurl,
   createFingerCurlStates,
   getFingerJoints,
+  getThumbOpposition,
 } from '../fingerCurl'
 
 const AXIS_Z = new Vector3(0, 0, 1)
@@ -89,5 +92,75 @@ describe('applyJointCurl', () => {
     applyJointCurl(bone, AXIS_Z, Math.PI / 2, 0, states)
 
     expect(bone.quaternion.angleTo(animated)).toBeCloseTo(0)
+  })
+})
+
+describe('getThumbOpposition', () => {
+  // 正規化した右手は指先 -X・手のひら -Y・親指の側 +Z。開いた親指は指先の方と親指の側の間を向く
+  const restRight = new Vector3(-0.039, -0.013, 0.046)
+
+  it('付け根を回すと、親指が手のひらの前（-Y）へ回り込んで指先の方（-X）へ伸びる', () => {
+    const opposition = getThumbOpposition('right', restRight)
+    expect(opposition).not.toBeNull()
+    if (!opposition) return
+    const direction = restRight
+      .clone()
+      .normalize()
+      .applyAxisAngle(opposition.axis, opposition.angle)
+    expect(direction.y).toBeLessThan(-0.4)
+    expect(direction.x).toBeLessThan(-0.7)
+    // 親指の側（+Z）からは離れる
+    expect(direction.z).toBeLessThan(restRight.clone().normalize().z)
+  })
+
+  it('左手は鏡像（X を反転）', () => {
+    const left = getThumbOpposition('left', new Vector3(0.039, -0.013, 0.046))
+    const right = getThumbOpposition('right', restRight)
+    expect(left?.angle).toBeCloseTo(right?.angle ?? 0)
+  })
+
+  it('次の関節の位置が 0 なら求めない', () => {
+    expect(getThumbOpposition('right', new Vector3())).toBeNull()
+  })
+})
+
+describe('applyFingerCurl の親指の付け根', () => {
+  /** 右手の親指の付け根と次の関節だけ持つアバター */
+  function thumbAvatar() {
+    const metacarpal = new Object3D()
+    const proximal = new Object3D()
+    proximal.position.set(-0.039, -0.013, 0.046)
+    metacarpal.add(proximal)
+    const bones: Record<string, Object3D> = {
+      rightThumbMetacarpal: metacarpal,
+      rightThumbProximal: proximal,
+    }
+    const vrm = {
+      humanoid: { getNormalizedBoneNode: (name: string) => bones[name] ?? null },
+    } as unknown as VRM
+    return { vrm, metacarpal, proximal }
+  }
+
+  const thumbDirection = (metacarpal: Object3D, proximal: Object3D) =>
+    proximal.position.clone().normalize().applyQuaternion(metacarpal.quaternion)
+
+  it('指ごとの値（ハンドトラッキング）があれば、親指が手のひらの前（-Y）へ回り込む', () => {
+    const { vrm, metacarpal, proximal } = thumbAvatar()
+    const fingers = { thumb: 1, index: 0, middle: 0, ring: 0, little: 0 }
+    applyFingerCurl(
+      vrm,
+      { left: 0, right: 0.2, fingers: { right: fingers } },
+      createFingerCurlStates(),
+    )
+    const direction = thumbDirection(metacarpal, proximal)
+    expect(direction.y).toBeLessThan(-0.4)
+    expect(direction.x).toBeLessThan(-0.7)
+  })
+
+  it('手の値だけ（コントローラーのグリップ）なら、今までどおり指の軸回りに倒す', () => {
+    const { vrm, metacarpal } = thumbAvatar()
+    applyFingerCurl(vrm, { left: 0, right: 1 }, createFingerCurlStates())
+    const expected = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), (20 * Math.PI) / 180)
+    expect(metacarpal.quaternion.angleTo(expected)).toBeCloseTo(0)
   })
 })

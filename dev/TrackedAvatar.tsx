@@ -135,6 +135,7 @@ export function TrackedAvatar({ vrm, fromGrip, simRef }: Props) {
             source.hand,
             space,
             _xrCurls[source.handedness],
+            source.handedness,
           )
         }
       }

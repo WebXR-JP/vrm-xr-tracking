@@ -41,6 +41,8 @@ export function useFingerCurl({ vrm }: { vrm: VRM }) {
   })
   // 開いたままの手を当て終えたら、次に曲がるまで触らない（人数ぶん毎フレーム30本を回さない）
   const isRestingRef = useRef(true)
+  // アバターに当てる値（指ごとの値が届いている手だけ fingers を渡す。親指の回り込みはその手だけ）
+  const applyRef = useRef<FingerCurlData>({ left: 0, right: 0, fingers: {} })
 
   const updateFingerCurl = useCallback(
     (target: FingerCurlData | undefined, delta: number) => {
@@ -66,7 +68,14 @@ export function useFingerCurl({ vrm }: { vrm: VRM }) {
           if (fingers) for (const finger of FINGER_NAMES) fingers[finger] = 0
         }
       }
-      applyFingerCurl(vrm, current, statesRef.current)
+      const apply = applyRef.current
+      const applyFingers = apply.fingers ?? {}
+      for (const side of SIDES) {
+        apply[side] = current[side]
+        applyFingers[side] = goal.fingers?.[side] ? current.fingers?.[side] : undefined
+      }
+      apply.fingers = applyFingers
+      applyFingerCurl(vrm, apply, statesRef.current)
       isRestingRef.current = isOpen
     },
     [vrm],
