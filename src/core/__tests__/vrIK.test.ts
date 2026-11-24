@@ -1,5 +1,5 @@
 import type { VRM, VRMHumanoid } from '@pixiv/three-vrm'
-import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
+import { Euler, Object3D, Quaternion, Vector3 } from 'three'
 import {
   applyKneeBend,
   applyUpperBodyRotation,
@@ -16,6 +16,8 @@ import {
   HAND_TRACKING_ROTATION_OFFSET_RIGHT,
   LEG_BONE_PATTERNS,
   ROTATION_DISTRIBUTION,
+  TPOSE_WRIST_LEFT,
+  TPOSE_WRIST_RIGHT,
 } from '../vrIK'
 
 describe('vrIK', () => {
@@ -309,19 +311,32 @@ describe('vrIK', () => {
         expect(distance).toBeGreaterThan(0.1)
       })
 
-      // 手のひらを下・指先を前（-Z）にした手。wrist はワールドと同じ向き（WebXR の仕様）
-      // grip は -Z が親指の方、+X が手の甲（右手。左手は -X）
-      const gripOf = (x: Vector3, y: Vector3, z: Vector3) =>
-        new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(x, y, z))
-
-      it('右手: wrist にオフセットを掛けると grip の向きになる', () => {
-        const grip = gripOf(new Vector3(0, 1, 0), new Vector3(0, 0, 1), new Vector3(1, 0, 0))
-        expect(HAND_TRACKING_ROTATION_OFFSET_RIGHT.angleTo(grip)).toBeCloseTo(0)
-      })
-
-      it('左手: wrist にオフセットを掛けると grip の向きになる', () => {
-        const grip = gripOf(new Vector3(0, -1, 0), new Vector3(0, 0, 1), new Vector3(-1, 0, 0))
-        expect(HAND_TRACKING_ROTATION_OFFSET_LEFT.angleTo(grip)).toBeCloseTo(0)
+      // T ポーズ（腕を真横・手のひらを下）で、wrist · オフセット · コントローラーのオフセット の
+      // 手のボーンが、指先を腕の向きに・手のひらを下に向ける（VRM 1.0 の手は右が -X、左が +X に伸びる）
+      it.each([
+        [
+          '右手',
+          TPOSE_WRIST_RIGHT,
+          HAND_TRACKING_ROTATION_OFFSET_RIGHT,
+          CONTROLLER_ROTATION_OFFSET_RIGHT,
+          -1,
+          1,
+        ],
+        [
+          '左手',
+          TPOSE_WRIST_LEFT,
+          HAND_TRACKING_ROTATION_OFFSET_LEFT,
+          CONTROLLER_ROTATION_OFFSET_LEFT,
+          1,
+          -1,
+        ],
+      ])('%s: T ポーズで指先が腕の向き・手のひらが下になる（前に曲がらない）', (_name, wrist, offset, controller, localFinger, worldArm) => {
+        const hand = wrist.clone().multiply(offset).multiply(controller)
+        const fingers = new Vector3(localFinger, 0, 0).applyQuaternion(hand)
+        expect(fingers.x).toBeCloseTo(worldArm)
+        expect(fingers.z).toBeCloseTo(0)
+        const palm = new Vector3(0, -1, 0).applyQuaternion(hand)
+        expect(palm.y).toBeCloseTo(-1)
       })
     })
   })
