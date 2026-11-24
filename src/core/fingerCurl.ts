@@ -182,9 +182,13 @@ export function applyFingerCurl(
       const bone = humanoid.getNormalizedBoneNode(joint.bone)
       if (!bone) continue
       const value = getFingerCurl(curl, side, joint.finger)
-      // 親指の付け根は、手のひらの前へ回り込む向きに回す（指の軸回りに倒すだけでは回り込まない）
+      // 親指の付け根は、手のひらの前へ回り込む向きに回す（指の軸回りに倒すだけでは回り込まない）。
+      // 指ごとの値（ハンドトラッキング）があるときだけ。コントローラーのグリップでは今までどおり
+      // （持った物やコントローラーに親指がめり込まないように）
       const opposition =
-        joint.bone === `${side}ThumbMetacarpal` ? getCachedThumbOpposition(humanoid, side) : null
+        joint.bone === `${side}ThumbMetacarpal` && curl.fingers?.[side]
+          ? getCachedThumbOpposition(humanoid, side)
+          : null
       if (opposition) {
         applyJointCurl(bone, opposition.axis, opposition.angle, value, states)
         continue
