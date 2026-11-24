@@ -8,9 +8,12 @@ import {
   applyUpperBodyRotation,
   extractCameraWorldYaw,
   extractHeadRotationFromCamera,
+  type FingerCurlData,
+  type FingerCurls,
   getAvatarEyeWorldPosition,
+  readHandFingerCurls,
 } from '../src'
-import { useVRControllerPositions } from '../src/react'
+import { useFingerCurl, useVRControllerPositions } from '../src/react'
 import type { SimFrame } from './simulation'
 
 type Props = {
@@ -26,6 +29,29 @@ const IDENTITY = new Quaternion()
 const _sceneWorldQuat = new Quaternion()
 const _tempEuler = new Euler()
 
+/** 5 本の平均（指ごとの値を知らない相手のための手の値） */
+function averageCurl(curls: FingerCurls): number {
+  return (curls.thumb + curls.index + curls.middle + curls.ring + curls.little) / 5
+}
+
+/** 左右の指ごとの曲がりを、同期と同じ形（FingerCurlData）にまとめる */
+function toFingerCurlData(
+  left: FingerCurls | null | undefined,
+  right: FingerCurls | null | undefined,
+  out: FingerCurlData,
+): FingerCurlData {
+  out.left = left ? averageCurl(left) : 0
+  out.right = right ? averageCurl(right) : 0
+  out.fingers = { left: left ?? undefined, right: right ?? undefined }
+  return out
+}
+
+const _curlData: FingerCurlData = { left: 0, right: 0 }
+const _xrCurls: Record<'left' | 'right', FingerCurls> = {
+  left: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
+  right: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
+}
+
 /**
  * HMD とコントローラーでアバターを動かす（XROrigin は原点に置いたまま）。
  * 体は頭の真下に置いて頭の向きへ回し、目の高さが HMD に合うよう縮尺を合わせる
@@ -34,6 +60,7 @@ export function TrackedAvatar({ vrm, fromGrip, simRef }: Props) {
   const groupRef = useRef<Group>(null)
   const eyeHeightRef = useRef<number | null>(null)
   const transformsRef = useVRControllerPositions()
+  const { updateFingerCurl } = useFingerCurl({ vrm })
 
   useFrame((state, delta) => {
     const group = groupRef.current
@@ -87,6 +114,31 @@ export function TrackedAvatar({ vrm, fromGrip, simRef }: Props) {
         fromGrip,
       })
       applyHandRotationFromTransform(vrm, leftController, rightController, IDENTITY)
+    }
+
+    // 指の曲がり: シミュレーションはログの関節から、XR はハンドトラッキングの関節から
+    if (sim) {
+      updateFingerCurl(
+        toFingerCurlData(sim.hands.left?.curls, sim.hands.right?.curls, _curlData),
+        delta,
+      )
+    } else if (state.gl.xr.isPresenting) {
+      const session = state.gl.xr.getSession()
+      const frame = state.gl.xr.getFrame()
+      const space = state.gl.xr.getReferenceSpace()
+      const read: Record<'left' | 'right', FingerCurls | null> = { left: null, right: null }
+      if (session && frame && space) {
+        for (const source of session.inputSources) {
+          if (!source.hand || source.handedness === 'none') continue
+          read[source.handedness] = readHandFingerCurls(
+            frame,
+            source.hand,
+            space,
+            _xrCurls[source.handedness],
+          )
+        }
+      }
+      updateFingerCurl(toFingerCurlData(read.left, read.right, _curlData), delta)
     }
 
     vrm.update(delta)

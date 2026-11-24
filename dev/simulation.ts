@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import type { ControllerTransform } from '../src'
+import { type ControllerTransform, computeFingerCurls, type FingerCurls } from '../src'
 import { type PosePreset, presetHand, type Side, specWristQuat } from './poses'
 import { handAxesInWrist, type ReplayData, type ReplayHand } from './replay'
 
@@ -12,6 +12,8 @@ export interface SimHand {
   palm: Vector3 | null
   /** 関節の位置（ワールド。ハンドトラッキングのログのときだけ） */
   joints: Vector3[]
+  /** 指ごとの曲がり（関節のログがあるときだけ） */
+  curls: FingerCurls | null
   /** 端末の wrist が仕様からどれだけずれているか（度。関節があるときだけ） */
   specDeviation: { finger: number; palm: number } | null
 }
@@ -33,6 +35,13 @@ function specDeviation(axes: { finger: Vector3; palm: Vector3 } | null) {
     finger: Math.round(axes.finger.angleTo(SPEC_FINGER) * (180 / Math.PI)),
     palm: Math.round(axes.palm.angleTo(SPEC_PALM) * (180 / Math.PI)),
   }
+}
+
+/** ログの関節から指ごとの曲がりを求める */
+function curlsOf(hand: ReplayHand | null): FingerCurls | null {
+  if (!hand?.joints) return null
+  const joints = hand.joints
+  return computeFingerCurls((name) => joints.get(name)?.position)
 }
 
 function jointsInWorld(hand: ReplayHand, transform: ControllerTransform): Vector3[] {
@@ -66,6 +75,7 @@ function presetSimHand(preset: PosePreset, side: Side, replay: ReplayHand | null
     finger: target.finger,
     palm: target.palm,
     joints: replay ? jointsInWorld(replay, transform) : [],
+    curls: curlsOf(replay),
     specDeviation: specDeviation(axes),
   }
 }
@@ -85,6 +95,7 @@ function recordedSimHand(hand: ReplayHand, side: Side): SimHand | null {
     finger: axes ? axes.finger.clone().applyQuaternion(transform.rotation) : null,
     palm: axes ? axes.palm.clone().applyQuaternion(transform.rotation) : null,
     joints: jointsInWorld(hand, transform),
+    curls: curlsOf(hand),
     specDeviation: specDeviation(axes),
   }
 }

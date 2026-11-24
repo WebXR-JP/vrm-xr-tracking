@@ -4,6 +4,7 @@ import { Canvas } from '@react-three/fiber'
 import { createXRStore, XR } from '@react-three/xr'
 import {
   type ChangeEvent,
+  type MouseEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { CameraFocus, type CameraFocusTarget } from './CameraFocus'
 import { AVATAR_COLOR, HandGizmos, type HandMetrics, INPUT_COLOR } from './HandGizmos'
 import { loadVRMFromFile, loadVRMFromURL } from './loadVRM'
 import { POSE_PRESETS, SIDES } from './poses'
@@ -46,6 +48,19 @@ const sectionStyle = { display: 'flex', flexDirection: 'column', gap: 6 } as con
 const mutedStyle = { color: '#aaa', fontSize: 12 } as const
 const SIDE_LABEL = { left: '左手', right: '右手' } as const
 const NO_METRICS: HandMetrics = { left: null, right: null }
+const FOCUS_OPTIONS = [
+  ['body', '全身'],
+  ['left', '左手'],
+  ['right', '右手'],
+] as const
+
+const FINGER_LABELS = [
+  ['thumb', '親'],
+  ['index', '人'],
+  ['middle', '中'],
+  ['ring', '薬'],
+  ['little', '小'],
+] as const
 
 /** ずれの角度の色（10° 以内なら合っている） */
 function metricColor(degrees: number): string {
@@ -66,6 +81,8 @@ export function App() {
   const [useRecordedPose, setUseRecordedPose] = useState(true)
   const [metrics, setMetrics] = useState<HandMetrics>(NO_METRICS)
   const simRef = useRef<SimFrame | null>(null)
+  const [focus, setFocus] = useState<CameraFocusTarget>('body')
+  const [focusVersion, setFocusVersion] = useState(0)
 
   // ?vrm=<URL> で最初から読む（dev/public に置いたファイルは /<名前> で読める）
   useEffect(() => {
@@ -131,6 +148,11 @@ export function App() {
 
   const handleEnterVR = useCallback(() => {
     store.enterVR()
+  }, [])
+
+  const handleFocus = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    setFocus(e.currentTarget.value as CameraFocusTarget)
+    setFocusVersion((v) => v + 1)
   }, [])
 
   const isUsingRecordedPose = mode === 'pose' && useRecordedPose && hasRecordedPose
@@ -236,6 +258,21 @@ export function App() {
           </div>
         )}
 
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          見る位置
+          {FOCUS_OPTIONS.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              value={value}
+              onClick={handleFocus}
+              aria-pressed={focus === value}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div style={sectionStyle}>
           <strong>手の向きのずれ</strong>
           <span style={mutedStyle}>
@@ -246,6 +283,7 @@ export function App() {
           {SIDES.map((side) => {
             const m = metrics[side]
             const deviation = simFrame?.hands[side]?.specDeviation
+            const curls = simFrame?.hands[side]?.curls
             return (
               <div key={side}>
                 {SIDE_LABEL[side]}:{' '}
@@ -263,6 +301,14 @@ export function App() {
                     {deviation.palm}°
                   </div>
                 )}
+                {curls && (
+                  <div style={mutedStyle}>
+                    指の曲がり:{' '}
+                    {FINGER_LABELS.map(
+                      ([finger, label]) => `${label} ${curls[finger].toFixed(2)}`,
+                    ).join('・')}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -276,7 +322,8 @@ export function App() {
           <gridHelper args={[10, 10]} />
           {vrm && <TrackedAvatar vrm={vrm} fromGrip={fromGrip} simRef={simRef} />}
           {vrm && <HandGizmos vrm={vrm} simRef={simRef} onMetrics={setMetrics} />}
-          <OrbitControls target={[0, 1.2, 0]} />
+          <OrbitControls makeDefault target={[0, 1.2, 0]} />
+          <CameraFocus vrm={vrm} focus={focus} version={focusVersion} />
         </XR>
       </Canvas>
     </>

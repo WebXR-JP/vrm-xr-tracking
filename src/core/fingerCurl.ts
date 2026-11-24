@@ -1,6 +1,6 @@
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm'
 import { type Object3D, Quaternion, Vector3 } from 'three'
-import type { FingerCurlData } from './types.js'
+import type { FingerCurlData, FingerName } from './types.js'
 
 /**
  * 握りきったときの関節ごとの曲げ角（ラジアン）。
@@ -18,13 +18,20 @@ const THUMB_JOINT_ANGLES = {
   Distal: (45 * Math.PI) / 180,
 } as const
 
-const FINGERS = ['Index', 'Middle', 'Ring', 'Little'] as const
+const FINGERS = [
+  ['Index', 'index'],
+  ['Middle', 'middle'],
+  ['Ring', 'ring'],
+  ['Little', 'little'],
+] as const
 
 const AXIS_X = new Vector3(1, 0, 0)
 const AXIS_Z = new Vector3(0, 0, 1)
 
 interface FingerJoint {
   bone: VRMHumanBoneName
+  /** どの指の関節か（指ごとの曲がりを引く） */
+  finger: FingerName
   axis: Vector3
   /** 握りきったときの角度（左右の符号込み） */
   angle: number
@@ -38,17 +45,23 @@ interface FingerJoint {
 export function getFingerJoints(side: 'left' | 'right'): FingerJoint[] {
   const sign = side === 'left' ? -1 : 1
   const joints: FingerJoint[] = []
-  for (const finger of FINGERS) {
+  for (const [boneName, finger] of FINGERS) {
     for (const [joint, angle] of Object.entries(FINGER_JOINT_ANGLES)) {
       joints.push({
-        bone: `${side}${finger}${joint}` as VRMHumanBoneName,
+        bone: `${side}${boneName}${joint}` as VRMHumanBoneName,
+        finger,
         axis: AXIS_Z,
         angle: sign * angle,
       })
     }
   }
   for (const [joint, angle] of Object.entries(THUMB_JOINT_ANGLES)) {
-    joints.push({ bone: `${side}Thumb${joint}` as VRMHumanBoneName, axis: AXIS_X, angle })
+    joints.push({
+      bone: `${side}Thumb${joint}` as VRMHumanBoneName,
+      finger: 'thumb',
+      axis: AXIS_X,
+      angle,
+    })
   }
   return joints
 }
@@ -104,9 +117,18 @@ export function createFingerCurlStates(): WeakMap<Object3D, BoneCurlState> {
   return new WeakMap()
 }
 
+/** その指の曲がり（指ごとの値があればそれ、無ければ手の値） */
+export function getFingerCurl(
+  curl: FingerCurlData,
+  side: 'left' | 'right',
+  finger: FingerName,
+): number {
+  return clampFingerCurl(curl.fingers?.[side]?.[finger] ?? curl[side])
+}
+
 /**
  * 指の曲がりをアバターに当てる。アニメーションの更新の後、vrm.update の前に呼ぶ
- * @param curl 左右の曲がり（0=開く、1=握る）
+ * @param curl 左右の曲がり（0=開く、1=握る）。指ごとの値（fingers）があればそれを使う
  */
 export function applyFingerCurl(
   vrm: VRM,
@@ -116,14 +138,14 @@ export function applyFingerCurl(
   const humanoid = vrm.humanoid
   if (!humanoid) return
   const sides = [
-    [LEFT_JOINTS, clampFingerCurl(curl.left)],
-    [RIGHT_JOINTS, clampFingerCurl(curl.right)],
+    ['left', LEFT_JOINTS],
+    ['right', RIGHT_JOINTS],
   ] as const
-  for (const [joints, value] of sides) {
+  for (const [side, joints] of sides) {
     for (const joint of joints) {
       const bone = humanoid.getNormalizedBoneNode(joint.bone)
       if (!bone) continue
-      applyJointCurl(bone, joint.axis, joint.angle, value, states)
+      applyJointCurl(bone, joint.axis, joint.angle, getFingerCurl(curl, side, joint.finger), states)
     }
   }
 }
