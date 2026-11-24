@@ -2,7 +2,15 @@ import type { VRM } from '@pixiv/three-vrm'
 import { OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { createXRStore, XR } from '@react-three/xr'
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { AVATAR_COLOR, HandGizmos, type HandMetrics, INPUT_COLOR } from './HandGizmos'
 import { loadVRMFromFile, loadVRMFromURL } from './loadVRM'
 import { POSE_PRESETS, SIDES } from './poses'
@@ -74,7 +82,9 @@ export function App() {
     () => (mode === 'pose' ? buildSimFrame(preset, replay, useRecordedPose) : null),
     [mode, preset, replay, useRecordedPose],
   )
-  simRef.current = simFrame
+  useLayoutEffect(() => {
+    simRef.current = simFrame
+  }, [simFrame])
 
   const handleFile = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -93,7 +103,6 @@ export function App() {
 
   const handleMode = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     setMode(e.target.value as Mode)
-    setMetrics(NO_METRICS)
   }, [])
 
   const handlePreset = useCallback((e: ChangeEvent<HTMLSelectElement>) => {

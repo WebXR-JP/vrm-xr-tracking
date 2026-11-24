@@ -30,13 +30,22 @@ export function parseAttributes(text: string): LogAttributes {
   return attributes
 }
 
-/** Sentry の JSON（`attributes` の中・`{ value, type }` の形）もほどく */
+/**
+ * Sentry の JSON もほどく（`attributes` や `values` の中・`{ value, type }` の形・
+ * `[{ key, value }]` の並び）
+ */
 function flattenAttributes(source: Record<string, unknown>): LogAttributes {
-  const inner = source.attributes
-  const record =
-    inner && typeof inner === 'object' && !Array.isArray(inner)
-      ? (inner as Record<string, unknown>)
-      : source
+  const inner = source.attributes ?? source.values
+  let record: Record<string, unknown> = source
+  if (Array.isArray(inner)) {
+    record = Object.fromEntries(
+      inner
+        .filter((item): item is { key: string; value: unknown } => !!item && 'key' in item)
+        .map((item) => [item.key, item.value]),
+    )
+  } else if (inner && typeof inner === 'object') {
+    record = inner as Record<string, unknown>
+  }
   const attributes: LogAttributes = {}
   for (const [key, raw] of Object.entries(record)) {
     const value =
@@ -100,10 +109,14 @@ export function handAxesInWrist(
   const index = joints.get('index-finger-phalanx-proximal')
   const pinky = joints.get('pinky-finger-phalanx-proximal')
   if (!middle || !index || !pinky) return null
-  const finger = middle.position.clone().normalize()
+  const finger = middle.position.clone()
   const across = index.position.clone().sub(pinky.position)
   // 右手は人差し指が親指側（手のひらを下・指先を前にすると左）。左手は鏡像
-  const palm = new Vector3().crossVectors(finger, across).normalize()
+  const palm = new Vector3().crossVectors(finger, across)
+  // 関節が取れていない（0 のまま・指と並んでいる）ときは向きが決まらない
+  if (finger.lengthSq() < 1e-8 || palm.lengthSq() < 1e-10) return null
+  finger.normalize()
+  palm.normalize()
   if (side === 'right') palm.negate()
   return { finger, palm }
 }

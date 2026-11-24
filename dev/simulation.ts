@@ -98,12 +98,13 @@ export function buildSimFrame(
   replay: ReplayData | null,
   useRecordedPose: boolean,
 ): SimFrame {
-  const headPosition = replay?.headHeight
-    ? new Vector3(0, replay.headHeight, 0)
-    : DEFAULT_HEAD.clone()
+  // ログの頭の高さは、ログの姿勢をそのまま使うときだけ（見本のポーズの手は目の高さ 1.6m の人に合わせてある）
+  const useRecorded = useRecordedPose && !!replay && Object.values(replay.hands).some((h) => h.pose)
+  const headPosition =
+    useRecorded && replay?.headHeight ? new Vector3(0, replay.headHeight, 0) : DEFAULT_HEAD.clone()
   const hand = (side: Side): SimHand | null => {
     const replayHand = replay?.hands[side] ?? null
-    if (useRecordedPose && replayHand?.pose) {
+    if (useRecorded && replayHand?.pose) {
       return recordedSimHand(replayHand, side)
     }
     return presetSimHand(preset, side, replayHand)
