@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
-import type { FingerCurls, FingerName } from './types.js'
+import { computeFingerSpread } from './fingerSpread.js'
+import type { FingerCurls, FingerName, FingerSpread } from './types.js'
 
 /** 指ごとの関節（WebXR Hand Input の名前。根元から指先へ） */
 const FINGER_CHAINS: Record<FingerName, readonly XRHandJoint[]> = {
@@ -167,7 +168,35 @@ export function readHandFingerCurls(
   out?: FingerCurls,
   handedness?: 'left' | 'right',
 ): FingerCurls | null {
-  if (!frame.getJointPose) return null
+  if (!readJointPositions(frame, hand, baseSpace)) return null
+  return computeFingerCurls((joint) => _jointPositions.get(joint), out, handedness)
+}
+
+/**
+ * XR の手から、指ごとの曲がりと指の開きを一度に求める。関節が 1 つも取れなければ false
+ * @param out 結果を書き込む先（curls・spread）
+ */
+export function readHandFingers(
+  frame: XRFrame,
+  hand: XRHand,
+  baseSpace: XRSpace,
+  handedness: 'left' | 'right',
+  out: { curls: FingerCurls; spread: FingerSpread },
+): boolean {
+  if (!readJointPositions(frame, hand, baseSpace)) return false
+  const getPosition = (joint: XRHandJoint) => _jointPositions.get(joint)
+  computeFingerCurls(getPosition, out.curls, handedness)
+  if (!computeFingerSpread(getPosition, out.spread)) {
+    out.spread.index = 0
+    out.spread.ring = 0
+    out.spread.little = 0
+  }
+  return true
+}
+
+/** 手の関節の位置を読んで覚える（_jointPositions）。1 つも取れなければ false */
+function readJointPositions(frame: XRFrame, hand: XRHand, baseSpace: XRSpace): boolean {
+  if (!frame.getJointPose) return false
   let found = 0
   for (const chain of [['wrist'] as const, ...Object.values(FINGER_CHAINS)]) {
     for (const joint of chain) {
@@ -187,6 +216,5 @@ export function readHandFingerCurls(
       found++
     }
   }
-  if (found === 0) return null
-  return computeFingerCurls((joint) => _jointPositions.get(joint), out, handedness)
+  return found > 0
 }

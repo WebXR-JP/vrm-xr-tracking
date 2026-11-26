@@ -284,6 +284,7 @@ export function App() {
             const m = metrics[side]
             const deviation = simFrame?.hands[side]?.specDeviation
             const curls = simFrame?.hands[side]?.curls
+            const spread = simFrame?.hands[side]?.spread
             return (
               <div key={side}>
                 {SIDE_LABEL[side]}:{' '}
@@ -307,6 +308,12 @@ export function App() {
                     {FINGER_LABELS.map(
                       ([finger, label]) => `${label} ${curls[finger].toFixed(2)}`,
                     ).join('・')}
+                  </div>
+                )}
+                {spread && (
+                  <div style={mutedStyle}>
+                    指の開き（度）: 人 {Math.round(spread.index)}・薬 {Math.round(spread.ring)}・小{' '}
+                    {Math.round(spread.little)}
                   </div>
                 )}
               </div>

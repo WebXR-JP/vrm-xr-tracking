@@ -10,8 +10,9 @@ import {
   extractHeadRotationFromCamera,
   type FingerCurlData,
   type FingerCurls,
+  type FingerSpread,
   getAvatarEyeWorldPosition,
-  readHandFingerCurls,
+  readHandFingers,
 } from '../src'
 import { useFingerCurl, useVRControllerPositions } from '../src/react'
 import type { SimFrame } from './simulation'
@@ -34,22 +35,34 @@ function averageCurl(curls: FingerCurls): number {
   return (curls.thumb + curls.index + curls.middle + curls.ring + curls.little) / 5
 }
 
-/** 左右の指ごとの曲がりを、同期と同じ形（FingerCurlData）にまとめる */
+type HandFingers = { curls: FingerCurls; spread: FingerSpread | null } | null
+
+/** 左右の指ごとの曲がりと開きを、同期と同じ形（FingerCurlData）にまとめる */
 function toFingerCurlData(
-  left: FingerCurls | null | undefined,
-  right: FingerCurls | null | undefined,
+  left: HandFingers,
+  right: HandFingers,
   out: FingerCurlData,
 ): FingerCurlData {
-  out.left = left ? averageCurl(left) : 0
-  out.right = right ? averageCurl(right) : 0
-  out.fingers = { left: left ?? undefined, right: right ?? undefined }
+  out.left = left ? averageCurl(left.curls) : 0
+  out.right = right ? averageCurl(right.curls) : 0
+  out.fingers = { left: left?.curls, right: right?.curls }
+  out.spread = { left: left?.spread ?? undefined, right: right?.spread ?? undefined }
   return out
 }
 
+const handFingersOf = (hand: { curls: FingerCurls | null; spread: FingerSpread | null } | null) =>
+  hand?.curls ? { curls: hand.curls, spread: hand.spread } : null
+
 const _curlData: FingerCurlData = { left: 0, right: 0 }
-const _xrCurls: Record<'left' | 'right', FingerCurls> = {
-  left: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
-  right: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
+const _xrFingers: Record<'left' | 'right', { curls: FingerCurls; spread: FingerSpread }> = {
+  left: {
+    curls: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
+    spread: { index: 0, ring: 0, little: 0 },
+  },
+  right: {
+    curls: { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 },
+    spread: { index: 0, ring: 0, little: 0 },
+  },
 }
 
 /**
@@ -119,24 +132,21 @@ export function TrackedAvatar({ vrm, fromGrip, simRef }: Props) {
     // 指の曲がり: シミュレーションはログの関節から、XR はハンドトラッキングの関節から
     if (sim) {
       updateFingerCurl(
-        toFingerCurlData(sim.hands.left?.curls, sim.hands.right?.curls, _curlData),
+        toFingerCurlData(handFingersOf(sim.hands.left), handFingersOf(sim.hands.right), _curlData),
         delta,
       )
     } else if (state.gl.xr.isPresenting) {
       const session = state.gl.xr.getSession()
       const frame = state.gl.xr.getFrame()
       const space = state.gl.xr.getReferenceSpace()
-      const read: Record<'left' | 'right', FingerCurls | null> = { left: null, right: null }
+      const read: Record<'left' | 'right', HandFingers> = { left: null, right: null }
       if (session && frame && space) {
         for (const source of session.inputSources) {
           if (!source.hand || source.handedness === 'none') continue
-          read[source.handedness] = readHandFingerCurls(
-            frame,
-            source.hand,
-            space,
-            _xrCurls[source.handedness],
-            source.handedness,
-          )
+          const out = _xrFingers[source.handedness]
+          if (readHandFingers(frame, source.hand, space, source.handedness, out)) {
+            read[source.handedness] = out
+          }
         }
       }
       updateFingerCurl(toFingerCurlData(read.left, read.right, _curlData), delta)
