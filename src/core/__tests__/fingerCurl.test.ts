@@ -164,3 +164,38 @@ describe('applyFingerCurl の親指の付け根', () => {
     expect(metacarpal.quaternion.angleTo(expected)).toBeCloseTo(0)
   })
 })
+
+describe('applyFingerCurl の指の開き', () => {
+  /** 右手の人差し指・中指・親指の根元だけ持つアバター */
+  function fingerAvatar() {
+    const bones: Record<string, Object3D> = {
+      rightIndexProximal: new Object3D(),
+      rightMiddleProximal: new Object3D(),
+      rightThumbProximal: new Object3D(),
+    }
+    const vrm = {
+      humanoid: { getNormalizedBoneNode: (name: string) => bones[name] ?? null },
+    } as unknown as VRM
+    return { vrm, bones }
+  }
+
+  it('開きがあれば、人差し指の根元を親指の側（+Z）へ回す。中指・親指は回さない', () => {
+    const { vrm, bones } = fingerAvatar()
+    applyFingerCurl(
+      vrm,
+      { left: 0, right: 0, spread: { right: { index: 20, ring: 0, little: 0 } } },
+      createFingerCurlStates(),
+    )
+    // 正規化した右手の指先は -X
+    const indexTip = new Vector3(-1, 0, 0).applyQuaternion(bones.rightIndexProximal.quaternion)
+    expect(indexTip.z).toBeGreaterThan(0.3)
+    expect(bones.rightMiddleProximal.quaternion.angleTo(new Quaternion())).toBeCloseTo(0)
+    expect(bones.rightThumbProximal.quaternion.angleTo(new Quaternion())).toBeCloseTo(0)
+  })
+
+  it('開きが無ければ回さない', () => {
+    const { vrm, bones } = fingerAvatar()
+    applyFingerCurl(vrm, { left: 0, right: 0 }, createFingerCurlStates())
+    expect(bones.rightIndexProximal.quaternion.angleTo(new Quaternion())).toBeCloseTo(0)
+  })
+})

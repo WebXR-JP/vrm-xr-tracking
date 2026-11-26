@@ -1,6 +1,7 @@
 export * from './core/armIK.js'
 export * from './core/controllerPose.js'
 export * from './core/fingerCurl.js'
+export * from './core/fingerSpread.js'
 export * from './core/handFingerCurl.js'
 export * from './core/tracking.js'
 export * from './core/types.js'

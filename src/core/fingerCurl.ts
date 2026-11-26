@@ -1,6 +1,7 @@
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm'
 import { type Object3D, Quaternion, Vector3 } from 'three'
-import type { FingerCurlData, FingerName } from './types.js'
+import { getSpreadRotation, SPREAD_FINGERS } from './fingerSpread.js'
+import type { FingerCurlData, FingerName, SpreadFingerName } from './types.js'
 
 /**
  * 握りきったときの関節ごとの曲げ角（ラジアン）。
@@ -123,10 +124,12 @@ export interface BoneCurlState {
 }
 
 const _curl = new Quaternion()
+const _spread = new Quaternion()
 
 /**
  * 1本の関節に曲がりを当てる（テストのため Object3D を直接受け取る）
  * @param states ボーンごとの状態（呼び出し側がアバターごとに持つ）
+ * @param preRotation 曲げる前に掛ける回転（指の開き）
  */
 export function applyJointCurl(
   bone: Object3D,
@@ -134,6 +137,7 @@ export function applyJointCurl(
   angle: number,
   curl: number,
   states: WeakMap<Object3D, BoneCurlState>,
+  preRotation?: Quaternion,
 ): void {
   let state = states.get(bone)
   if (!state) {
@@ -144,7 +148,9 @@ export function applyJointCurl(
   }
 
   _curl.setFromAxisAngle(axis, angle * curl)
-  bone.quaternion.copy(state.base).multiply(_curl)
+  bone.quaternion.copy(state.base)
+  if (preRotation) bone.quaternion.multiply(preRotation)
+  bone.quaternion.multiply(_curl)
   state.result.copy(bone.quaternion)
 }
 
@@ -164,7 +170,8 @@ export function getFingerCurl(
 
 /**
  * 指の曲がりをアバターに当てる。アニメーションの更新の後、vrm.update の前に呼ぶ
- * @param curl 左右の曲がり（0=開く、1=握る）。指ごとの値（fingers）があればそれを使う
+ * @param curl 左右の曲がり（0=開く、1=握る）。指ごとの値（fingers）があればそれを使う。
+ *   開き（spread）があれば、指の根元を横にも開く
  */
 export function applyFingerCurl(
   vrm: VRM,
@@ -193,7 +200,14 @@ export function applyFingerCurl(
         applyJointCurl(bone, opposition.axis, opposition.angle, value, states)
         continue
       }
-      applyJointCurl(bone, joint.axis, joint.angle, value, states)
+      // 指の根元は、開き（ハンドトラッキング）も当てる
+      const spread = curl.spread?.[side]
+      const spreadFinger = joint.finger as SpreadFingerName
+      const pre =
+        spread && joint.bone.endsWith('Proximal') && SPREAD_FINGERS.includes(spreadFinger)
+          ? getSpreadRotation(side, spread[spreadFinger], value, _spread)
+          : undefined
+      applyJointCurl(bone, joint.axis, joint.angle, value, states, pre)
     }
   }
 }
