@@ -48,7 +48,8 @@ function measureBoneAngle(
  * 手の関節の位置から、指の開き（度）を求める。手のひらが決まらなければ null
  *
  * 手のひらの面（手首→中指の付け根の向きと、小指→人差し指の付け根の向き）で、各指の根元の骨の向きを
- * 中指の根元の骨と比べる。曲げて手のひらの側を向いた指は測れないので 0（そろえたまま）にする
+ * 中指の根元の骨と比べる（中指を曲げていれば手のひらの向きと比べる）。
+ * 曲げて手のひらの側を向いた指は測れないので 0（そろえたまま）にする
  */
 export function computeFingerSpread(
   getPosition: JointPositionLookup,
@@ -67,15 +68,16 @@ export function computeFingerSpread(
   if (_side.lengthSq() < 1e-12) return null
   _side.normalize()
 
-  const middleAngle = measureBoneAngle(
-    ['middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate'],
-    getPosition,
-  )
+  // 中指を曲げている（チョキ・指さしなど）ときは測れないので、手のひらの向き（0°）を基準にする
+  const middleAngle =
+    measureBoneAngle(
+      ['middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate'],
+      getPosition,
+    ) ?? 0
   for (const finger of SPREAD_FINGERS) {
-    const angle = middleAngle === null ? null : measureBoneAngle(SPREAD_JOINTS[finger], getPosition)
+    const angle = measureBoneAngle(SPREAD_JOINTS[finger], getPosition)
     const [min, max] = SPREAD_LIMITS[finger]
-    out[finger] =
-      angle === null || middleAngle === null ? 0 : Math.min(max, Math.max(min, angle - middleAngle))
+    out[finger] = angle === null ? 0 : Math.min(max, Math.max(min, angle - middleAngle))
   }
   return out
 }

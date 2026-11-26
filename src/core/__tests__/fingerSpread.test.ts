@@ -54,6 +54,18 @@ describe('computeFingerSpread', () => {
     expect(spread).toEqual({ index: 0, ring: 0, little: 0 })
   })
 
+  it('中指を曲げていても（チョキ・指さし）、伸ばした指の開きは手のひらの向きから測る', () => {
+    const getPosition = hand({ index: 12, ring: -5, little: -20 })
+    // 中指だけ手のひらの側へ曲げる
+    const bentMiddle = (joint: string) =>
+      joint === 'middle-finger-phalanx-intermediate'
+        ? new Vector3(-0.002, -0.04, -0.095)
+        : getPosition(joint)
+    const spread = computeFingerSpread(bentMiddle)
+    expect(spread?.index).toBeCloseTo(12)
+    expect(spread?.little).toBeCloseTo(-20)
+  })
+
   it('手のひらが決まらなければ null', () => {
     expect(computeFingerSpread(() => undefined)).toBeNull()
   })
