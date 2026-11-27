@@ -12,13 +12,23 @@ import {
   useRef,
   useState,
 } from 'react'
-import { CameraFocus, type CameraFocusTarget } from './CameraFocus'
+import type { BodyMetrics } from './bodyMetrics'
+import { CameraFocus, type CameraFocusTarget, type EyeView } from './CameraFocus'
+import { EyeMarker } from './EyeMarker'
 import { AVATAR_COLOR, HandGizmos, type HandMetrics, INPUT_COLOR } from './HandGizmos'
+import { HeadControls } from './HeadControls'
 import { loadVRMFromFile, loadVRMFromURL } from './loadVRM'
 import { POSE_PRESETS, SIDES } from './poses'
 import { parseAttributes, type ReplayData, readReplay } from './replay'
-import { buildSimFrame, type SimFrame } from './simulation'
+import { buildSimFrame, eyePositionOf, type SimFrame } from './simulation'
+import { mutedStyle, sectionStyle } from './styles'
 import { TrackedAvatar } from './TrackedAvatar'
+import {
+  DEFAULT_TORSO_BEND_DEGREES,
+  type TorsoBendDegrees,
+  type TorsoBendKey,
+  toTorsoBendConfig,
+} from './torsoBend'
 
 // 機材が無いときは main.tsx で IWER のエミュレーターを入れている（DevUI でコントローラーを動かせる）
 const store = createXRStore({ emulate: false })
@@ -44,12 +54,12 @@ const panelStyle = {
   lineHeight: 1.5,
 } as const
 
-const sectionStyle = { display: 'flex', flexDirection: 'column', gap: 6 } as const
-const mutedStyle = { color: '#aaa', fontSize: 12 } as const
 const SIDE_LABEL = { left: '左手', right: '右手' } as const
 const NO_METRICS: HandMetrics = { left: null, right: null }
 const FOCUS_OPTIONS = [
   ['body', '全身'],
+  ['side', '横から'],
+  ['eye', '目から'],
   ['left', '左手'],
   ['right', '右手'],
 ] as const
@@ -83,6 +93,13 @@ export function App() {
   const simRef = useRef<SimFrame | null>(null)
   const [focus, setFocus] = useState<CameraFocusTarget>('body')
   const [focusVersion, setFocusVersion] = useState(0)
+  const [headPitchDegrees, setHeadPitchDegrees] = useState(0)
+  const [pivotOnNeck, setPivotOnNeck] = useState(true)
+  const [bodyMetrics, setBodyMetrics] = useState<BodyMetrics | null>(null)
+  const [torsoBendDegrees, setTorsoBendDegrees] = useState<TorsoBendDegrees>(
+    DEFAULT_TORSO_BEND_DEGREES,
+  )
+  const torsoBend = useMemo(() => toTorsoBendConfig(torsoBendDegrees), [torsoBendDegrees])
 
   // ?vrm=<URL> で最初から読む（dev/public に置いたファイルは /<名前> で読める）
   useEffect(() => {
@@ -96,8 +113,24 @@ export function App() {
   const preset = POSE_PRESETS.find((p) => p.id === presetId) ?? POSE_PRESETS[0]
   const hasRecordedPose = !!replay && SIDES.some((side) => replay.hands[side].pose)
   const simFrame = useMemo(
-    () => (mode === 'pose' ? buildSimFrame(preset, replay, useRecordedPose) : null),
-    [mode, preset, replay, useRecordedPose],
+    () =>
+      mode === 'pose'
+        ? buildSimFrame(preset, replay, useRecordedPose, {
+            pitch: (headPitchDegrees * Math.PI) / 180,
+            pivotOnNeck,
+          })
+        : null,
+    [mode, preset, replay, useRecordedPose, headPitchDegrees, pivotOnNeck],
+  )
+  const eyePosition = useMemo(() => (simFrame ? eyePositionOf(simFrame) : null), [simFrame])
+  const isEyeView = focus === 'eye' && !!simFrame
+  // 「目から」以外では null のままにして、ポーズを変えてもカメラを動かさない
+  const eyeView = useMemo<EyeView | null>(
+    () =>
+      isEyeView && simFrame && eyePosition
+        ? { position: eyePosition, pitch: simFrame.headPitch }
+        : null,
+    [isEyeView, simFrame, eyePosition],
   )
   useLayoutEffect(() => {
     simRef.current = simFrame
@@ -155,6 +188,24 @@ export function App() {
     setFocusVersion((v) => v + 1)
   }, [])
 
+  const handleHeadPitch = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setHeadPitchDegrees(Number(e.target.value))
+  }, [])
+
+  const handlePivotOnNeck = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setPivotOnNeck(e.target.checked)
+  }, [])
+
+  const handleTorsoBend = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const key = e.target.name as TorsoBendKey
+    const value = Number(e.target.value)
+    setTorsoBendDegrees((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const handleTorsoBendReset = useCallback(() => {
+    setTorsoBendDegrees(DEFAULT_TORSO_BEND_DEGREES)
+  }, [])
+
   const isUsingRecordedPose = mode === 'pose' && useRecordedPose && hasRecordedPose
 
   return (
@@ -200,6 +251,19 @@ export function App() {
               ))}
             </select>
           </label>
+        )}
+
+        {mode === 'pose' && (
+          <HeadControls
+            pitchDegrees={headPitchDegrees}
+            pivotOnNeck={pivotOnNeck}
+            onPitchChange={handleHeadPitch}
+            onPivotOnNeckChange={handlePivotOnNeck}
+            metrics={bodyMetrics}
+            torsoBendDegrees={torsoBendDegrees}
+            onTorsoBendChange={handleTorsoBend}
+            onTorsoBendReset={handleTorsoBendReset}
+          />
         )}
 
         {mode === 'xr' && (
@@ -267,6 +331,7 @@ export function App() {
               value={value}
               onClick={handleFocus}
               aria-pressed={focus === value}
+              disabled={value === 'eye' && mode !== 'pose'}
             >
               {label}
             </button>
@@ -327,10 +392,21 @@ export function App() {
           <ambientLight intensity={0.8} />
           <directionalLight position={[1, 3, 2]} intensity={1.5} />
           <gridHelper args={[10, 10]} />
-          {vrm && <TrackedAvatar vrm={vrm} fromGrip={fromGrip} simRef={simRef} />}
+          {vrm && (
+            <TrackedAvatar
+              vrm={vrm}
+              fromGrip={fromGrip}
+              simRef={simRef}
+              firstPerson={isEyeView}
+              torsoBend={torsoBend}
+              onBodyMetrics={setBodyMetrics}
+            />
+          )}
+          {/* 自分の目の前に出て邪魔なので、一人称のときは出さない */}
+          {eyePosition && !isEyeView && <EyeMarker position={eyePosition} />}
           {vrm && <HandGizmos vrm={vrm} simRef={simRef} onMetrics={setMetrics} />}
           <OrbitControls makeDefault target={[0, 1.2, 0]} />
-          <CameraFocus vrm={vrm} focus={focus} version={focusVersion} />
+          <CameraFocus vrm={vrm} focus={focus} version={focusVersion} eyeView={eyeView} />
         </XR>
       </Canvas>
     </>

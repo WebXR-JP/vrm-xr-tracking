@@ -9,7 +9,7 @@ WebXR の HMD とコントローラー（またはハンドトラッキング）
 - **腕の IK**: コントローラーの位置へ肩・肘・手首を合わせる（Two-Bone IK、肘は重力方向へ逃がす）
 - **手の向き**: コントローラーの grip とハンドトラッキングの wrist の向きを手首のボーンへ当てる
 - **握りの中心 → 手首**: `gripSpace` の原点（握りこぶしの中心）に手首を合わせると手が前に出るので、手首まで戻した点を IK の目標にする（`fromGrip`）
-- **上半身と腰**: 頭の向きを背骨・胸・頭に分けて回す。頭が下がった分だけ腰を下げ、しゃがみでは膝を曲げる
+- **上半身と腰**: 頭の向きを背骨・胸・頭に分けて回し、下を向くと背中を spine・chest・upperChest の 3 か所でなめらかな弧に曲げ（upperChest が無いアバターでは chest に足す）、残りの傾きの一部を首（neck）に持たせる（曲げる量は `applyUpperBodyRotation` の 5 つ目の引数 `TorsoBendConfig` で差し替えられる。既定は `DEFAULT_TORSO_BEND`。`upperChest`・`neck` も毎フレーム書く）。腰はアバターの目がカメラの位置に来るところへ置く（下を向くと腰が後ろへ逃げて足元が見える）。胸を視界の外へ出すため、下を向いたときは体を最大 12cm 後ろへ引き（`TorsoBendConfig.pullBack`）、腰を最大 6cm 落として屈伸する（`TorsoBendConfig.kneeDrop`）。その分アバターの目はカメラより後ろ・下へずれる（`pullBack: 0`・`kneeDrop: 0` で目がカメラに一致する）。`updateHipsFromHeadTracking` の 6 つ目の引数に `applyUpperBodyRotation` と同じ config を渡す。しゃがみ・屈伸では、足が床に残る角度で膝を曲げる（`computeKneeBendAngles`。腰の落ちた量から遊び `KNEE_BEND_DEADZONE` を引き、曲げ始めは `KNEE_BEND_SOFTNESS` でなめらかに立ち上げる。遊び以下に戻ると脚をまっすぐに戻す。`updateHipsFromHeadTracking` は `applyUpperBodyRotation` の後に呼ぶ）
 - **キャリブレーション**: アバターの目の位置へ XROrigin を合わせる。床の原点が遅れて確定するランタイム（Pico など）向けに、姿勢が落ち着くまで待つ判定も含む
 - **指の曲げ**: 0〜1 の値で指を握る（アニメーションと重ねても曲がりが溜まらない）。ハンドトラッキングでは関節から指ごとの曲がりを求めて、1 本ずつ曲げる（`readHandFingerCurls`）
 

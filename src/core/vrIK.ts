@@ -296,32 +296,201 @@ export function applyGripRotationToBone(
 }
 
 /**
- * 上半身の回転を適用（spine/chest/headに回転を分散）
- * yawは3ボーンに分散、pitch/roll（首かしげ）はheadのみに適用
+ * 下を向いたときに背中を前へ曲げる量。VR で真下を見ると、直立した胴が目の真下にあって
+ * 床が見えないので、VRChat のように背中を曲げる（腰を後ろへ逃がすのは updateHipsFromHeadTracking）。
+ * 胴の前傾は spine・chest・upperChest の 3 か所に分けてなめらかな弧にし、残りの傾きの一部を首（neck）が持つ。
+ * 角度は rad、長さは m（vrm.scene のローカル）
  */
-export function applyUpperBodyRotation(vrm: VRM, yaw: number, pitch: number, roll = 0): void {
-  const spine = vrm.humanoid?.getNormalizedBoneNode('spine')
-  const chest = vrm.humanoid?.getNormalizedBoneNode('chest')
-  const head = vrm.humanoid?.getNormalizedBoneNode('head')
+export interface TorsoBendConfig {
+  /** 背中を曲げ始める下向きの角度（これより浅い下向き・上向きでは曲げない） */
+  startPitch: number
+  /** 背中の曲げが最大になる下向きの角度 */
+  fullPitch: number
+  /** spine の前傾の最大 */
+  maxSpine: number
+  /** chest の前傾の最大 */
+  maxChest: number
+  /** upperChest の前傾の最大。upperChest が無いアバターでは、この分を chest に足す（合計の前傾は変わらない） */
+  maxUpperChest: number
+  /**
+   * 頭の前後の傾きのうち、胴で曲げた残りを首（neck）が受け持つ割合（0〜1）。
+   * neck の前後の傾き = (pitch − 胴の前傾の合計) × neckShare。上向きにも効く。neck が無ければ頭が全部持つ
+   */
+  neckShare: number
+  /**
+   * 下を向ききったときに体全体を後ろへ引く最大の量（m）。
+   * 曲げと同じ進み具合で増やす。updateHipsFromHeadTracking が使う（0 で引かない）
+   */
+  pullBack: number
+  /**
+   * 下を向ききったときに腰を落とす（屈伸する）最大の量（m）。
+   * 曲げと同じ進み具合で増やし、落とした分は膝を曲げる。updateHipsFromHeadTracking が使う（0 で落とさない）
+   */
+  kneeDrop: number
+}
 
-  if (spine) {
-    spine.quaternion.setFromEuler(new Euler(0, yaw * ROTATION_DISTRIBUTION.spine, 0, 'YXZ'))
-    spine.updateMatrixWorld(true)
-  }
-
-  if (chest) {
-    chest.quaternion.setFromEuler(new Euler(0, yaw * ROTATION_DISTRIBUTION.chest, 0, 'YXZ'))
-    chest.updateMatrixWorld(true)
-  }
-
-  if (head) {
-    head.quaternion.setFromEuler(new Euler(pitch, yaw * ROTATION_DISTRIBUTION.head, roll, 'YXZ'))
-    head.updateMatrixWorld(true)
-  }
+/** 背中の曲げの既定値。実機で見ながら調整する値 */
+export const DEFAULT_TORSO_BEND: TorsoBendConfig = {
+  startPitch: (15 * Math.PI) / 180,
+  fullPitch: (75 * Math.PI) / 180,
+  maxSpine: (10 * Math.PI) / 180,
+  maxChest: (12 * Math.PI) / 180,
+  maxUpperChest: (12 * Math.PI) / 180,
+  neckShare: 0.4,
+  // 背中を曲げても胸の前面が目のすぐ後ろ下に残って視界に入るので、胸を視界の外へ出すために引く。
+  // 一人称では頭を描かないので分からないが、アバターの目とカメラはこの分ずれる。実機で調整する値
+  pullBack: 0.12,
+  // 脚がまっすぐのまま上体だけ曲げると不自然なので、下を向いたら少し屈伸する。実機で調整する値
+  kneeDrop: 0.06,
 }
 
 /**
- * しゃがみ時の膝曲げを適用
+ * 頭の pitch（下向きが正）から、背中を曲げる進み具合（0〜1）を求める
+ * 開始角から最大角まで smoothstep でなめらかに増やす（曲げ始めと曲げ終わりで急に変わらないように）。
+ * 最大角が開始角以下のときは、開始角を超えたら 1 にする（0 で割らないように）
+ */
+export function computeTorsoBendProgress(
+  pitch: number,
+  config: TorsoBendConfig = DEFAULT_TORSO_BEND,
+): number {
+  const { startPitch, fullPitch } = config
+  const range = fullPitch - startPitch
+  const linear = range > 0 ? (pitch - startPitch) / range : pitch > startPitch ? 1 : 0
+  const clamped = Math.min(1, Math.max(0, linear))
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+/**
+ * 頭の pitch（下向きが正）から、spine・chest・upperChest の前傾（rad、+X 回りで正が前）を求める
+ * 進み具合は computeTorsoBendProgress（開始角から最大角まで smoothstep）。
+ * upperChest が無いアバターで chest へ足すのは applyUpperBodyRotation が行う（ここでは骨格を見ない）
+ */
+export function computeTorsoBend(
+  pitch: number,
+  config: TorsoBendConfig = DEFAULT_TORSO_BEND,
+): { spine: number; chest: number; upperChest: number } {
+  const { maxSpine, maxChest, maxUpperChest } = config
+  const t = computeTorsoBendProgress(pitch, config)
+  return { spine: t * maxSpine, chest: t * maxChest, upperChest: t * maxUpperChest }
+}
+
+const _upperBodyEuler = new Euler()
+const _torsoQuat = new Quaternion()
+const _headTargetQuat = new Quaternion()
+
+/**
+ * 上半身の回転を適用する
+ * - yaw は spine・chest・head に分ける（ROTATION_DISTRIBUTION）
+ * - 下を向いた分（computeTorsoBend）だけ spine・chest・upperChest を前へ倒して背骨を弧にする。
+ *   upperChest が無いアバターでは、その分を chest に足す（合計の前傾は変えない）
+ * - neck は、pitch から胴で倒した分を引いた残りの neckShare 倍だけ前後に傾ける（X 軸回りだけ。上向きにも効く）
+ * - head は、hips から見た向きがカメラの向き（Euler(pitch, yaw, roll, 'YXZ')）と一致するよう、残りを受け持つ
+ *
+ * upperChest と neck も毎フレーム書く（曲げが 0 なら単位回転）。アニメーションなどで回した値は上書きされる
+ * @param torsoBend 背中を曲げる量（省略すると DEFAULT_TORSO_BEND）
+ */
+export function applyUpperBodyRotation(
+  vrm: VRM,
+  yaw: number,
+  pitch: number,
+  roll = 0,
+  torsoBend: TorsoBendConfig = DEFAULT_TORSO_BEND,
+): void {
+  const spine = vrm.humanoid?.getNormalizedBoneNode('spine')
+  const chest = vrm.humanoid?.getNormalizedBoneNode('chest')
+  const upperChest = vrm.humanoid?.getNormalizedBoneNode('upperChest')
+  const neck = vrm.humanoid?.getNormalizedBoneNode('neck')
+  const head = vrm.humanoid?.getNormalizedBoneNode('head')
+
+  const bend = computeTorsoBend(pitch, torsoBend)
+  // upperChest が無いアバターが多いので、その分は chest に足して合計の前傾を変えない
+  const chestBend = upperChest ? bend.chest : bend.chest + bend.upperChest
+  // spine から neck までで回した分を合わせたもの。頭の向きから打ち消すのに使う
+  const torso = _torsoQuat.identity()
+  // 胴（spine・chest・upperChest）で実際に倒した前傾の合計
+  let appliedBend = 0
+
+  if (spine) {
+    spine.quaternion.setFromEuler(
+      _upperBodyEuler.set(bend.spine, yaw * ROTATION_DISTRIBUTION.spine, 0, 'YXZ'),
+    )
+    spine.updateMatrixWorld(true)
+    torso.multiply(spine.quaternion)
+    appliedBend += bend.spine
+  }
+
+  if (chest) {
+    chest.quaternion.setFromEuler(
+      _upperBodyEuler.set(chestBend, yaw * ROTATION_DISTRIBUTION.chest, 0, 'YXZ'),
+    )
+    chest.updateMatrixWorld(true)
+    torso.multiply(chest.quaternion)
+    appliedBend += chestBend
+  }
+
+  if (upperChest) {
+    upperChest.quaternion.setFromEuler(_upperBodyEuler.set(bend.upperChest, 0, 0, 'YXZ'))
+    upperChest.updateMatrixWorld(true)
+    torso.multiply(upperChest.quaternion)
+    appliedBend += bend.upperChest
+  }
+
+  if (neck) {
+    // 頭の付け根 1 か所で折れないよう、胴で倒した残りの一部を首に持たせる（yaw・roll は頭が持つ）
+    const neckPitch = (pitch - appliedBend) * torsoBend.neckShare
+    neck.quaternion.setFromEuler(_upperBodyEuler.set(neckPitch, 0, 0, 'YXZ'))
+    neck.updateMatrixWorld(true)
+    torso.multiply(neck.quaternion)
+  }
+
+  if (!head) return
+
+  // 背中と首を曲げても、hips から見た頭の向きはカメラの向き（Euler(pitch, yaw, roll, 'YXZ')）のままにする。
+  // spine・chest・upperChest・neck で回した分を逆に掛ければよい。
+  // 曲げが 0 で pitch も 0 なら Euler(0, yaw×0.6, roll, 'YXZ') になり、今までと同じ
+  _headTargetQuat.setFromEuler(_upperBodyEuler.set(pitch, yaw, roll, 'YXZ'))
+  head.quaternion.copy(torso.invert()).multiply(_headTargetQuat)
+  head.updateMatrixWorld(true)
+}
+
+/**
+ * 膝を曲げ始めるまでの遊び（m）。腰の落ちた量からこれを引いた分で膝を曲げる。
+ * 立っているときの頭の小さな上下で膝が震えないための遊び。引いて使うので、曲げ始めに段差は無い
+ */
+export const KNEE_BEND_DEADZONE = 0.03
+
+/**
+ * 膝の曲げ始めをなめらかにする幅（m）。遊びを超えた量 x から、脚を縮める量を x² / (x + KNEE_BEND_SOFTNESS) にする。
+ * acos(1 − 縮める量 / 脚の長さ) は 0 での傾きが無限大なので、x をそのまま縮めると遊びを 1mm 超えただけで
+ * 太もも約 3°・膝約 6° 曲がり、遊びの境目（既定値では下向き 45° あたり）で頭の小さな揺れに膝が震える。
+ * x² で立ち上げると acos(1 − k·x²) ≈ √(2k)·x となり、曲げ始めの角度が x にほぼ比例する。
+ * x が大きいと縮める量 ≈ x − KNEE_BEND_SOFTNESS になるので、足はその分（最大 2cm ほど）余分に床へ沈む。これは許す
+ */
+export const KNEE_BEND_SOFTNESS = 0.02
+
+/**
+ * 腰の落ちた量から、足を床に残す太ももと膝の曲げ（rad、どちらも正）を求める
+ * 太ももとすねを同じ長さ（legLength / 2）とみなし、遊びを超えた量 x = max(0, drop − KNEE_BEND_DEADZONE) から
+ * 縮める量 = x² / (x + KNEE_BEND_SOFTNESS) だけ脚を縮める角度にする:
+ * 太ももの前への傾き a = acos(1 − 縮める量 / legLength)、膝の曲げ 2a（すねは鉛直から後ろへ a）。
+ * 縮める量 / legLength は 0〜1 に丸める（脚の長さを超えても NaN にしない）
+ */
+export function computeKneeBendAngles(
+  drop: number,
+  legLength: number,
+): { thigh: number; knee: number } {
+  const x = Math.max(0, drop - KNEE_BEND_DEADZONE)
+  // 曲げ始めをなめらかにする（KNEE_BEND_SOFTNESS を参照）
+  const shorten = (x * x) / (x + KNEE_BEND_SOFTNESS)
+  if (shorten === 0 || !(legLength > 0)) return { thigh: 0, knee: 0 }
+  const ratio = Math.min(1, shorten / legLength)
+  const thigh = Math.acos(1 - ratio)
+  return { thigh, knee: thigh * 2 }
+}
+
+/**
+ * しゃがみ時の膝曲げを適用（computeKneeBendAngles の角度で、足が床に残るように曲げる）
+ * @param hipsDropAmount 腰が立ち姿勢から落ちた量（m）
  */
 export function applyKneeBend(vrm: VRM, hipsDropAmount: number, legLength: number): void {
   const leftUpperLeg = vrm.humanoid?.getNormalizedBoneNode('leftUpperLeg')
@@ -329,9 +498,10 @@ export function applyKneeBend(vrm: VRM, hipsDropAmount: number, legLength: numbe
   const rightUpperLeg = vrm.humanoid?.getNormalizedBoneNode('rightUpperLeg')
   const rightLowerLeg = vrm.humanoid?.getNormalizedBoneNode('rightLowerLeg')
 
-  const bendRatio = Math.min(1, hipsDropAmount / legLength)
-  const kneeBendAngle = bendRatio * Math.PI * 1.1
-  const hipBendAngle = bendRatio * Math.PI * 0.55
+  const { thigh: hipBendAngle, knee: kneeBendAngle } = computeKneeBendAngles(
+    hipsDropAmount,
+    legLength,
+  )
 
   // VRM 1.0 はアバターが +Z を向くので、太ももを前へ上げる回転は X 軸回りの負
   const sign = -1

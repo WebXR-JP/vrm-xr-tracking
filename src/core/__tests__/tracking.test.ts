@@ -1,7 +1,6 @@
 import type { VRM, VRMHumanoid } from '@pixiv/three-vrm'
 import { Object3D, Quaternion, Vector3 } from 'three'
 import {
-  CROUCH_THRESHOLD,
   clampHipsDropY,
   HEAD_CHANGE_THRESHOLD,
   isRapidPositionChange,
@@ -42,12 +41,6 @@ function createMockVRM(options: { bones?: Record<string, Object3D | null> } = {}
 }
 
 describe('tracking', () => {
-  describe('CROUCH_THRESHOLD', () => {
-    it('5cmのしきい値が設定されている', () => {
-      expect(CROUCH_THRESHOLD).toBe(0.05)
-    })
-  })
-
   describe('measureLegLength', () => {
     it('ボーンが存在しない場合はデフォルト値を返す', () => {
       const vrm = createMockVRM({ bones: {} })
@@ -152,7 +145,7 @@ describe('tracking', () => {
       expect(hips.position.z).toBeCloseTo(0.05)
     })
 
-    it('CROUCH_THRESHOLDを超えるhips下降では膝曲げが適用される', () => {
+    it('膝を曲げ始める遊び（KNEE_BEND_DEADZONE）を超えるhips下降では膝曲げが適用される', () => {
       const hipsNode = createMockBoneNode(new Vector3(0, 1, 0))
       // 膝曲げに必要なボーンも用意
       const vrm = createMockVRM({
@@ -165,27 +158,82 @@ describe('tracking', () => {
         },
       })
       const initialHipsPos = new Vector3(0, 1, 0)
-      // Y方向に-0.1m移動 → hipsDropAmount = 0.1 > CROUCH_THRESHOLD(0.05)
+      // Y方向に-0.1m移動 → hipsDropAmount = 0.1 > KNEE_BEND_DEADZONE(0.03)
       const relativeHead = new Vector3(0, -0.1, 0)
 
       updateHipsFromHeadTracking(vrm, relativeHead, initialHipsPos, false, 0.8)
 
       const hips = vrm.humanoid!.getNormalizedBoneNode('hips')!
       expect(hips.position.y).toBeCloseTo(0.9)
+      const leftUpperLeg = vrm.humanoid!.getNormalizedBoneNode('leftUpperLeg')!
+      expect(leftUpperLeg.rotation.x).toBeLessThan(0)
     })
 
-    it('CROUCH_THRESHOLD以下のhips下降では膝曲げが適用されない', () => {
+    it('遊び以下のhips下降では脚に触らない（脚のアニメーションを上書きしない）', () => {
       const hipsNode = createMockBoneNode(new Vector3(0, 1, 0))
-      const vrm = createMockVRM({ bones: { hips: hipsNode } })
+      const leftUpperLeg = createMockBoneNode(new Vector3(-0.1, 0.9, 0))
+      const leftLowerLeg = createMockBoneNode(new Vector3(-0.1, 0.5, 0))
+      // アニメーションで曲げた値が残っている
+      leftUpperLeg.rotation.x = -0.3
+      leftLowerLeg.rotation.x = 0.6
+      const vrm = createMockVRM({ bones: { hips: hipsNode, leftUpperLeg, leftLowerLeg } })
       const initialHipsPos = new Vector3(0, 1, 0)
-      // Y方向に-0.03m移動 → hipsDropAmount = 0.03 < CROUCH_THRESHOLD(0.05)
-      const relativeHead = new Vector3(0, -0.03, 0)
+      // Y方向に-0.02m移動 → hipsDropAmount = 0.02 < KNEE_BEND_DEADZONE(0.03)
+      const relativeHead = new Vector3(0, -0.02, 0)
 
       updateHipsFromHeadTracking(vrm, relativeHead, initialHipsPos, false, 0.8)
 
       const hips = vrm.humanoid!.getNormalizedBoneNode('hips')!
       // 位置は更新されるが膝曲げは適用されない
-      expect(hips.position.y).toBeCloseTo(0.97)
+      expect(hips.position.y).toBeCloseTo(0.98)
+      expect(leftUpperLeg.rotation.x).toBe(-0.3)
+      expect(leftLowerLeg.rotation.x).toBe(0.6)
+    })
+
+    describe('膝を曲げたあと遊び以下に戻る', () => {
+      function createLegVRM() {
+        const bones = {
+          hips: createMockBoneNode(new Vector3(0, 1, 0)),
+          leftUpperLeg: createMockBoneNode(new Vector3(-0.1, 0.9, 0)),
+          rightUpperLeg: createMockBoneNode(new Vector3(0.1, 0.9, 0)),
+          leftLowerLeg: createMockBoneNode(new Vector3(-0.1, 0.5, 0)),
+          rightLowerLeg: createMockBoneNode(new Vector3(0.1, 0.5, 0)),
+        }
+        return { vrm: createMockVRM({ bones }), bones }
+      }
+      const initialHipsPos = new Vector3(0, 1, 0)
+      // hipsDropAmount = 0.2 > KNEE_BEND_DEADZONE
+      const crouch = new Vector3(0, -0.2, 0)
+      // hipsDropAmount = 0.01 < KNEE_BEND_DEADZONE
+      const standing = new Vector3(0, -0.01, 0)
+
+      it('脚が 0 に戻る', () => {
+        const { vrm, bones } = createLegVRM()
+        updateHipsFromHeadTracking(vrm, crouch, initialHipsPos, false, 0.8)
+        expect(bones.leftUpperLeg.rotation.x).toBeLessThan(0)
+        expect(bones.rightLowerLeg.rotation.x).toBeGreaterThan(0)
+
+        updateHipsFromHeadTracking(vrm, standing, initialHipsPos, false, 0.8)
+
+        expect(bones.leftUpperLeg.rotation.x).toBeCloseTo(0)
+        expect(bones.leftLowerLeg.rotation.x).toBeCloseTo(0)
+        expect(bones.rightUpperLeg.rotation.x).toBeCloseTo(0)
+        expect(bones.rightLowerLeg.rotation.x).toBeCloseTo(0)
+      })
+
+      it('戻したあとの次のフレームでは脚に触らない（アニメーションの値が残る）', () => {
+        const { vrm, bones } = createLegVRM()
+        updateHipsFromHeadTracking(vrm, crouch, initialHipsPos, false, 0.8)
+        updateHipsFromHeadTracking(vrm, standing, initialHipsPos, false, 0.8)
+
+        // アニメーションが脚を書く
+        bones.leftUpperLeg.rotation.x = -0.3
+        bones.leftLowerLeg.rotation.x = 0.6
+        updateHipsFromHeadTracking(vrm, standing, initialHipsPos, false, 0.8)
+
+        expect(bones.leftUpperLeg.rotation.x).toBe(-0.3)
+        expect(bones.leftLowerLeg.rotation.x).toBe(0.6)
+      })
     })
   })
 
