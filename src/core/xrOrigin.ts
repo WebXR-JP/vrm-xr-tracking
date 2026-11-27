@@ -31,8 +31,8 @@ export function worldToLocalOffset(
   }
 }
 
-// 目ボーンがない場合の頭から目線までの推定距離
-const HEAD_TO_EYE_OFFSET = 0.15
+/** 目ボーンがない場合の頭から目線までの推定距離（m）。腰の位置合わせ（tracking.ts）でも使う */
+export const HEAD_TO_EYE_OFFSET = 0.15
 
 /**
  * アバターの目の位置をワールド座標で取得

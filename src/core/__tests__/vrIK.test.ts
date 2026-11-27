@@ -14,6 +14,8 @@ import {
   gripToWristPosition,
   HAND_TRACKING_ROTATION_OFFSET_LEFT,
   HAND_TRACKING_ROTATION_OFFSET_RIGHT,
+  KNEE_BEND_DEADZONE,
+  KNEE_BEND_SOFTNESS,
   LEG_BONE_PATTERNS,
   ROTATION_DISTRIBUTION,
   TPOSE_WRIST_LEFT,
@@ -393,9 +395,15 @@ describe('vrIK', () => {
       const { vrm: full, bones: fullBones } = createMockVRMWithBones()
 
       applyKneeBend(deep, DEFAULT_LEG_LENGTH * 2, DEFAULT_LEG_LENGTH)
-      applyKneeBend(full, DEFAULT_LEG_LENGTH, DEFAULT_LEG_LENGTH)
+      // 遊びを引いた量が 脚の長さ + なめらかにする幅 なら、縮める量が脚の長さ以上になり比が 1 に丸められる
+      applyKneeBend(
+        full,
+        DEFAULT_LEG_LENGTH + KNEE_BEND_DEADZONE + KNEE_BEND_SOFTNESS,
+        DEFAULT_LEG_LENGTH,
+      )
 
       expect(deepBones.leftLowerLeg.rotation.x).toBeCloseTo(fullBones.leftLowerLeg.rotation.x)
+      expect(deepBones.leftLowerLeg.rotation.x).toBeCloseTo(Math.PI)
     })
   })
 
@@ -440,9 +448,11 @@ describe('vrIK', () => {
       expect(getBoneEuler(head).y).toBeCloseTo(yaw * ROTATION_DISTRIBUTION.head)
     })
 
-    it('pitchはheadのみに適用される', () => {
+    // このモックには upperChest・neck が無いので、首の分も head が持つ
+    it('背中を曲げ始める角度より浅い pitch は head のみに適用される', () => {
       const { vrm, spine, chest, head } = createMockVRMWithUpperBodyBones()
-      const pitch = 0.4
+      // DEFAULT_TORSO_BEND.startPitch（15°）より浅い下向き
+      const pitch = 0.2
 
       applyUpperBodyRotation(vrm, 0, pitch)
 

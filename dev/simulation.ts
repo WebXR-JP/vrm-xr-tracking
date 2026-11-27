@@ -1,4 +1,4 @@
-import { Vector3 } from 'three'
+import { Quaternion, Vector3 } from 'three'
 import {
   type ControllerTransform,
   computeFingerCurls,
@@ -28,8 +28,46 @@ export interface SimHand {
 
 /** VR に入らずにアバターへ渡す 1 フレーム（ユーザーは -Z を向いて立っている） */
 export interface SimFrame {
+  /** 立ち姿勢の頭（目）の位置。アバターはこの真下に置く */
   headPosition: Vector3
+  /** 頭の pitch（rad、下向きが正） */
+  headPitch: number
+  /** ユーザーの目が立ち姿勢（headPosition）からどれだけ動いたか（ワールド） */
+  headChange: Vector3
   hands: Record<Side, SimHand | null>
+}
+
+/** 頭の向きの操作 */
+export interface SimHead {
+  /** 下を向く角度（rad、下向きが正） */
+  pitch: number
+  /** 首を軸に頭を回す（目が弧を描く）。false なら目はその場で向きだけ変える */
+  pivotOnNeck: boolean
+}
+
+/**
+ * 首の回転の軸から見た目の位置（m。ユーザーは -Z 向き）
+ * 人が下を向くときは首の付け根あたりを軸に頭が回るので、目は前へ出ながら下がる。そのおおよその値
+ */
+export const NECK_TO_EYE_UP = 0.1
+export const NECK_TO_EYE_FORWARD = 0.08
+
+const X_AXIS = new Vector3(1, 0, 0)
+
+/**
+ * 首を軸に pitch だけ下を向いたとき、目が立ち姿勢からどれだけ動くか（ワールド、ユーザーは -Z 向き）
+ * 首から見た目の位置を X 軸回りに回し、元の位置を引く。下向き（pitch が正）は -X 回りの回転になる
+ */
+export function computeHeadChange(pitch: number, pivotOnNeck: boolean): Vector3 {
+  if (!pivotOnNeck) return new Vector3()
+  const neckToEye = new Vector3(0, NECK_TO_EYE_UP, -NECK_TO_EYE_FORWARD)
+  const rotation = new Quaternion().setFromAxisAngle(X_AXIS, -pitch)
+  return neckToEye.clone().applyQuaternion(rotation).sub(neckToEye)
+}
+
+/** ユーザーの目（カメラが来る場所）の位置 */
+export function eyePositionOf(sim: SimFrame): Vector3 {
+  return sim.headPosition.clone().add(sim.headChange)
 }
 
 const DEFAULT_HEAD = new Vector3(0, 1.6, 0)
@@ -119,11 +157,13 @@ function recordedSimHand(hand: ReplayHand, side: Side): SimHand | null {
 /**
  * 見本のポーズ（とログの手の形）から 1 フレームを作る
  * @param useRecordedPose ログに姿勢（tracking calibration）があれば、見本ではなくそれを使う
+ * @param head 頭の向き（ログの姿勢を使うときも効かせる）
  */
 export function buildSimFrame(
   preset: PosePreset,
   replay: ReplayData | null,
   useRecordedPose: boolean,
+  head: SimHead,
 ): SimFrame {
   // ログの頭の高さは、ログの姿勢をそのまま使うときだけ（見本のポーズの手は目の高さ 1.6m の人に合わせてある）
   const useRecorded = useRecordedPose && !!replay && Object.values(replay.hands).some((h) => h.pose)
@@ -136,5 +176,10 @@ export function buildSimFrame(
     }
     return presetSimHand(preset, side, replayHand)
   }
-  return { headPosition, hands: { left: hand('left'), right: hand('right') } }
+  return {
+    headPosition,
+    headPitch: head.pitch,
+    headChange: computeHeadChange(head.pitch, head.pivotOnNeck),
+    hands: { left: hand('left'), right: hand('right') },
+  }
 }
